@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27130.2024
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36310.24 d17.14
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Hangfire.Storage.MySql", "Hangfire.Storage.MySql\Hangfire.Storage.MySql.csproj", "{0BEAED39-972D-465A-B28B-AB0644120C63}"
 EndProject
@@ -9,18 +9,23 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Hangfire.Storage.MySql.Test
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".build", ".build", "{835ECDA0-7229-4D96-8B74-8D9F119E6683}"
 	ProjectSection(SolutionItems) = preProject
+		..\.gitignore = ..\.gitignore
 		..\build.fsx = ..\build.fsx
 		..\build.tools.fsx = ..\build.tools.fsx
 		..\CHANGES.md = ..\CHANGES.md
 		..\paket.dependencies = ..\paket.dependencies
 		..\README.md = ..\README.md
-		..\.gitignore = ..\.gitignore
 		..\settings.cfg = ..\settings.cfg
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Hangfire.Storage.MySql.App", "Hangfire.Storage.MySql.App\Hangfire.Storage.MySql.App.csproj", "{8B4FBBA7-E660-46C8-BE90-7EADFB69FE4E}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "XaRecover", "XaRecover\XaRecover.csproj", "{1E7CFB01-B947-4310-97D2-7EB4D4FCA55E}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{02EA681E-C7D8-13C7-8484-4AC65E1B71E8}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
