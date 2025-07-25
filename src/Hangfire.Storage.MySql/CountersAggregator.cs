@@ -1,10 +1,10 @@
-﻿using System;
-using System.Threading;
-using Dapper;
+﻿using Dapper;
 using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage.MySql.Locking;
-using MySqlConnector;
+using System;
+using System.Data;
+using System.Threading;
 
 namespace Hangfire.Storage.MySql
 {
@@ -43,7 +43,7 @@ namespace Hangfire.Storage.MySql
 			cancellationToken.WaitHandle.WaitOne(_options.CountersAggregateInterval);
 		}
 
-		private int AggregateCounter(MySqlConnection connection)
+		private int AggregateCounter(IDbConnection connection)
 		{
 			using (ResourceLock.AcquireOne(
 				connection, _options.TablesPrefix, LockableResource.Counter))

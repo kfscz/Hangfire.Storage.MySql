@@ -38,13 +38,15 @@ namespace Hangfire.Storage.MySql.App
 				.Select(l => l.Count)
 				.Subscribe(c => Console.WriteLine($"{c / 5.0:N}/s"));
 
-			var connectionString = "Server=localhost;Database=hangfire;Uid=test;Pwd=test";
-			var tablePrefix = "with_locks_";
+			const string connectionString = "Server=localhost;Database=hangfire;Uid=test;Pwd=test";
+			const string tablePrefix = "with_locks_";
+			IDbConnector connector = new DbProviderFactoryConnector(
+				MySqlConnector.MySqlConnectorFactory.Instance, connectionString);
 
-			GlobalConfiguration.Configuration.UseLogProvider(new HLogProvider(loggerFactory));
+      GlobalConfiguration.Configuration.UseLogProvider(new HLogProvider(loggerFactory));
 
 			using (var storage = new MySqlStorage(
-				connectionString, new MySqlStorageOptions { TablesPrefix = tablePrefix }))
+        connector, new MySqlStorageOptions { TablesPrefix = tablePrefix }))
 			{
 				var cancel = new CancellationTokenSource();
 				var task = Task.WhenAll(

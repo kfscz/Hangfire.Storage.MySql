@@ -10,7 +10,6 @@ using System.Text;
 using System.Threading;
 using System.Xml.Linq;
 using Hangfire.Storage.MySql.Locking;
-using MySqlConnector;
 
 namespace Hangfire.Storage.MySql
 {
@@ -19,7 +18,7 @@ namespace Hangfire.Storage.MySql
         private static readonly TimeSpan MigrationTimeout = TimeSpan.FromMinutes(1);
         private static readonly ILog Log = LogProvider.GetLogger(typeof(MySqlStorage));
 
-        public static void Install(MySqlConnection connection, string tablesPrefix = null)
+        public static void Install(IDbConnection connection, string tablesPrefix = null)
         {
             if (connection == null) throw new ArgumentNullException("connection");
 
@@ -42,7 +41,7 @@ namespace Hangfire.Storage.MySql
             Log.Info("Hangfire SQL objects installed.");
         }
 
-        public static void Upgrade(MySqlConnection connection, string tablesPrefix = null)
+        public static void Upgrade(IDbConnection connection, string tablesPrefix = null)
         {
             if (connection == null) throw new ArgumentNullException(nameof(connection));
 
@@ -73,7 +72,7 @@ namespace Hangfire.Storage.MySql
             }
         }
 
-        private static void EnsureMigrationsTable(DbConnection connection, string prefix)
+        private static void EnsureMigrationsTable(IDbConnection connection, string prefix)
         {
             var tableExists = connection.ExecuteScalar<string>($"SHOW TABLES LIKE '{prefix}Migration';") != null;
             if (tableExists) return;
@@ -95,7 +94,7 @@ namespace Hangfire.Storage.MySql
         }
         
         private static void ApplyMigration(
-            DbConnection connection, string script, string prefix, string id)
+            IDbConnection connection, string script, string prefix, string id)
         {
             // NOTE: Some operations cannot be executed in transactions (create table?)
             // we will need some mechanism to handle that if we need it
@@ -113,7 +112,7 @@ namespace Hangfire.Storage.MySql
             }
         }
 
-        private static bool TablesExists(MySqlConnection connection, string tablesPrefix) => 
+        private static bool TablesExists(IDbConnection connection, string tablesPrefix) => 
             connection.ExecuteScalar<string>($"SHOW TABLES LIKE '{tablesPrefix}Job';") != null;
 
         private static string GetStringResource(string resourceName)

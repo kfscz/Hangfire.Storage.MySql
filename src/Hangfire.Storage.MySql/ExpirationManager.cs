@@ -1,10 +1,11 @@
-﻿using System;
-using System.Threading;
-using Dapper;
+﻿using Dapper;
 using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage.MySql.Locking;
-using MySqlConnector;
+using System;
+using System.Data;
+using System.Data.Common;
+using System.Threading;
 
 namespace Hangfire.Storage.MySql
 {
@@ -79,7 +80,7 @@ namespace Hangfire.Storage.MySql
 		}
 
 		private int RemoveExpiredRows(
-			CancellationToken cancellationToken, MySqlConnection connection,
+			CancellationToken cancellationToken, IDbConnection connection,
 			string tablePrefix, string tableName, LockableResource lockType)
 		{
 			try
@@ -95,7 +96,7 @@ namespace Hangfire.Storage.MySql
 					return removedCount;
 				}
 			}
-			catch (MySqlException ex)
+			catch (DbException ex)
 			{
 				Logger.Error(ex.ToString());
 				return 0;

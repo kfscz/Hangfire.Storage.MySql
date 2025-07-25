@@ -9,7 +9,7 @@ namespace Hangfire.Storage.MySql
 
         public MySqlStorageOptions()
         {
-            TransactionIsolationLevel = System.Transactions.IsolationLevel.ReadCommitted;
+            //TransactionIsolationLevel = System.Transactions.IsolationLevel.ReadCommitted;
             QueuePollInterval = TimeSpan.FromSeconds(15);
             JobExpirationCheckInterval = TimeSpan.FromHours(1);
             CountersAggregateInterval = TimeSpan.FromMinutes(5);
@@ -21,7 +21,7 @@ namespace Hangfire.Storage.MySql
             TablesPrefix = DefaultTablesPrefix;
         }
 
-        public System.Transactions.IsolationLevel? TransactionIsolationLevel { get; set; }
+        //public System.Transactions.IsolationLevel? TransactionIsolationLevel { get; set; }
 
         public TimeSpan QueuePollInterval
         {
@@ -51,6 +51,7 @@ namespace Hangfire.Storage.MySql
 
         public int? DashboardJobListLimit { get; set; }
         public TimeSpan TransactionTimeout { get; set; }
+
         [Obsolete("Does not make sense anymore. Background jobs re-queued instantly even after ungraceful shutdown now. Will be removed in 2.0.0.")]
         public TimeSpan InvisibilityTimeout { get; set; }
 

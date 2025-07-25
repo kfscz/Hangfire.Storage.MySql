@@ -7,7 +7,7 @@ using System.Threading;
 using Hangfire.Common;
 using Hangfire.States;
 using Hangfire.Storage.MySql.Locking;
-using MySqlConnector;
+using System.Data;
 
 namespace Hangfire.Storage.MySql
 {
@@ -18,8 +18,8 @@ namespace Hangfire.Storage.MySql
         private readonly MySqlStorage _storage;
         private readonly MySqlStorageOptions _storageOptions;
 
-        private readonly Queue<Action<MySqlTransaction>> _commandQueue
-            = new Queue<Action<MySqlTransaction>>();
+        private readonly Queue<Action<IDbTransaction>> _commandQueue
+            = new Queue<Action<IDbTransaction>>();
 
         private readonly List<LockableResource> _resources 
             = new List<LockableResource>();
@@ -388,7 +388,7 @@ namespace Hangfire.Storage.MySql
             });
         }
 
-        internal void QueueCommand(Action<MySqlTransaction> action)
+        internal void QueueCommand(Action<IDbTransaction> action)
         {
             _commandQueue.Enqueue(action);
         }

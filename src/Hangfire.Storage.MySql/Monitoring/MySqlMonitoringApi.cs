@@ -1,14 +1,14 @@
-﻿using System;
-using System.Collections.Generic;
-using Dapper;
-using System.Linq;
+﻿using Dapper;
 using Hangfire.Annotations;
 using Hangfire.Common;
 using Hangfire.States;
 using Hangfire.Storage.Monitoring;
 using Hangfire.Storage.MySql.Entities;
 using Hangfire.Storage.MySql.JobQueue;
-using MySqlConnector;
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Linq;
 
 namespace Hangfire.Storage.MySql.Monitoring
 {
@@ -316,10 +316,10 @@ namespace Hangfire.Storage.MySql.Monitoring
                 GetHourlyTimelineStats(connection, "failed"));
         }
         
-        private T UseConnection<T>(Func<MySqlConnection, T> action) => 
+        private T UseConnection<T>(Func<IDbConnection, T> action) => 
             _storage.UseConnection(action);
 
-        private long GetNumberOfJobsByStateName(MySqlConnection connection, string stateName)
+        private long GetNumberOfJobsByStateName(IDbConnection connection, string stateName)
         {
             var sqlQuery = _storageOptions.DashboardJobListLimit.HasValue
                 ? $"select count(j.Id) from (select Id from `{_storageOptions.TablesPrefix}Job` where StateName = @state limit @limit) as j"
@@ -341,7 +341,7 @@ namespace Hangfire.Storage.MySql.Monitoring
         }
 
         private JobList<TDto> GetJobs<TDto>(
-            MySqlConnection connection,
+            IDbConnection connection,
             int from,
             int count,
             string stateName,
@@ -402,7 +402,7 @@ namespace Hangfire.Storage.MySql.Monitoring
         }
 
         private Dictionary<DateTime, long> GetTimelineStats(
-            MySqlConnection connection,
+            IDbConnection connection,
             string type)
         {
             var endDate = DateTime.UtcNow.Date;
@@ -418,7 +418,7 @@ namespace Hangfire.Storage.MySql.Monitoring
             return GetTimelineStats(connection, keyMaps);
         }
 
-        private Dictionary<DateTime, long> GetTimelineStats(MySqlConnection connection,
+        private Dictionary<DateTime, long> GetTimelineStats(IDbConnection connection,
             IDictionary<string, DateTime> keyMaps)
         {
             var valuesMap = connection.Query(
@@ -442,7 +442,7 @@ namespace Hangfire.Storage.MySql.Monitoring
         }
 
         private JobList<EnqueuedJobDto> EnqueuedJobs(
-            MySqlConnection connection, int[] ids)
+            IDbConnection connection, int[] ids)
         {
             string enqueuedJobsSql = 
                 $@"select j.*, s.Reason as StateReason, s.Data as StateData 
@@ -466,7 +466,7 @@ namespace Hangfire.Storage.MySql.Monitoring
         }
 
         private JobList<FetchedJobDto> FetchedJobs(
-            MySqlConnection connection, int[] ids)
+            IDbConnection connection, int[] ids)
         {
             var fetchedJobsSql = $@"/* Jobs with State */
                 select j.*, s.Reason as StateReason, s.Data as StateData 
@@ -490,7 +490,7 @@ namespace Hangfire.Storage.MySql.Monitoring
         }
 
         private Dictionary<DateTime, long> GetHourlyTimelineStats(
-            MySqlConnection connection,
+            IDbConnection connection,
             string type)
         {
             var endDate = DateTime.UtcNow;

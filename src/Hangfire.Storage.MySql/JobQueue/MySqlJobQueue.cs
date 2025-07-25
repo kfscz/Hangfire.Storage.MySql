@@ -5,12 +5,13 @@ using Hangfire.Logging;
 using System.Linq;
 using System.Threading;
 using Hangfire.Storage.MySql.Locking;
-using MySqlConnector;
+using System.Data.Common;
 
-namespace Hangfire.Storage.MySql.JobQueue
-{
+namespace Hangfire.Storage.MySql.JobQueue;
+
 	internal class MySqlJobQueue: IPersistentJobQueue
 	{
+
 		private static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlJobQueue));
 
 		private readonly MySqlStorage _storage;
@@ -59,7 +60,7 @@ namespace Hangfire.Storage.MySql.JobQueue
 					cancellationToken.ThrowIfCancellationRequested();
 				}
 			}
-			catch (MySqlException ex)
+			catch (DbException ex)
 			{
 				Logger.ErrorException(ex.Message, ex);
 				throw;
@@ -119,4 +120,3 @@ namespace Hangfire.Storage.MySql.JobQueue
 			Enqueue(transaction.Connection, transaction, queue, jobId);
 
 	}
-}
