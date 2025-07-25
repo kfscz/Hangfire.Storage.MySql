@@ -423,24 +423,35 @@ internal class MySqlMonitoringApi : IMonitoringApi
   private Dictionary<DateTime, long> GetTimelineStats(IDbConnection connection,
       IDictionary<string, DateTime> keyMaps)
   {
-    var valuesMap = connection.Query(
-        $"select `Key`, `Value` as `Count` from `{_storageOptions.TablesPrefix}AggregatedCounter` where `Key` in @keys",
+    var valuesMap = connection
+      .Query<KeyCountAggregatedCounter>(
+        $"""
+        SELECT `Key`, `Value` as `Count` 
+        FROM `{_storageOptions.TablesPrefix}AggregatedCounter`
+        WHERE `Key` in @keys
+        """,        
         new { keys = keyMaps.Keys })
-        .ToDictionary(x => (string)x.Key, x => (long)x.Count);
+      .ToDictionary(x => x.Key ?? string.Empty, x => x.Count);
 
     foreach (var key in keyMaps.Keys)
     {
       if (!valuesMap.ContainsKey(key)) valuesMap.Add(key, 0);
     }
-
     var result = new Dictionary<DateTime, long>();
     for (var i = 0; i < keyMaps.Count; i++)
     {
       var value = valuesMap[keyMaps.ElementAt(i).Key];
       result.Add(keyMaps.ElementAt(i).Value, value);
     }
-
     return result;
+  }
+
+  class KeyCountAggregatedCounter 
+  {
+#pragma warning disable CS0649
+    public string? Key;
+    public long Count;
+#pragma warning restore CS0649
   }
 
   private JobList<EnqueuedJobDto> EnqueuedJobs(

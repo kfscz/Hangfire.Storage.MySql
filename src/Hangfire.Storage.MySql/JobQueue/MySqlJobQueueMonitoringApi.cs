@@ -28,11 +28,15 @@ internal class MySqlJobQueueMonitoringApi : IPersistentJobQueueMonitoringApi
     {
       if (_queuesCache.Count == 0 || _cacheUpdated.Add(QueuesCacheTimeout) < DateTime.UtcNow)
       {
-        var result = _storage.UseConnection(connection =>
-            connection
-                .Query($"select distinct(Queue) from `{_storageOptions.TablesPrefix}JobQueue`")
-                .Select(x => (string)x.Queue)
-                .ToList());
+        var result = _storage.UseConnection(connection => connection
+          .Query<JobQueueRow>($"""
+            SELECT distinct(Queue) as Queue 
+            FROM `{_storageOptions.TablesPrefix}JobQueue`;
+            """)
+          .Select(x => x.Queue)
+          .OfType<string>()
+          .ToList()
+        );
 
         _queuesCache = result;
         _cacheUpdated = DateTime.UtcNow;
@@ -40,6 +44,13 @@ internal class MySqlJobQueueMonitoringApi : IPersistentJobQueueMonitoringApi
 
       return _queuesCache.ToList();
     }
+  }
+
+  class JobQueueRow
+  {
+#pragma warning disable CS0649
+    public string? Queue;
+#pragma warning restore CS0649
   }
 
   public IEnumerable<int> GetEnqueuedJobIds(string queue, int @from, int perPage)
