@@ -13,7 +13,6 @@ namespace Hangfire.Storage.MySql
 
 		private readonly string _resource;
 		private readonly TimeSpan _timeout;
-		private readonly MySqlStorage _storage;
 		private readonly MySqlStorageOptions _storageOptions;
 		private readonly DateTime _start;
 		private readonly CancellationToken _cancellationToken;
@@ -69,11 +68,6 @@ namespace Hangfire.Storage.MySql
 		public void Dispose()
 		{
 			Release();
-
-			if (_storage != null)
-			{
-				_storage.ReleaseConnection(_connection);
-			}
 		}
 
 		internal MySqlDistributedLock Acquire()
@@ -131,7 +125,7 @@ namespace Hangfire.Storage.MySql
 			}
 		}
 
-		public int CompareTo(object obj)
+		public int CompareTo(object? obj)
 		{
 			if (obj == null) return 1;
 

@@ -1,19 +1,19 @@
+#pragma warning disable CS8618 // Non-nullable field must contain a non-null value when exiting constructor. Consider adding the 'required' modifier or declaring as nullable.
 using System;
 
-namespace Hangfire.Storage.MySql.Entities
+namespace Hangfire.Storage.MySql.Entities;
+
+internal class SqlJob
 {
-    internal class SqlJob
-    {
-        public int Id { get; set; }
-        public string InvocationData { get; set; }
-        public string Arguments { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public DateTime ExpireAt { get; set; }
+  public int Id { get; set; }
+  public string InvocationData { get; set; }
+  public string Arguments { get; set; }
+  public DateTime CreatedAt { get; set; }
+  public DateTime ExpireAt { get; set; }
 
-        public DateTime? FetchedAt { get; set; }
+  public DateTime? FetchedAt { get; set; }
 
-        public string StateName { get; set; }
-        public string StateReason { get; set; }
-        public string StateData { get; set; }
-    }
+  public string StateName { get; set; }
+  public string StateReason { get; set; }
+  public string StateData { get; set; }
 }

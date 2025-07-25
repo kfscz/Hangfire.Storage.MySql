@@ -61,7 +61,7 @@ namespace System
 		/// <exception cref="AggregateException">Combines exceptions thrown when disposing items.</exception>
 		private static void DisposeMany(IEnumerable<IDisposable> disposables)
 		{
-			IList<Exception> exceptions = null;
+			IList<Exception>? exceptions = null;
 			foreach (var disposable in disposables)
 			{
 				try
@@ -83,7 +83,7 @@ namespace System
 		/// <param name="item">The disposable item.</param>
 		/// <returns>Same item for further processing.</returns>
 		[SuppressMessage("ReSharper", "ExpressionIsAlwaysNull")]
-		public T Add<T>(T item) where T: IDisposable
+		public T? Add<T>(T item) where T: IDisposable
 		{
 			if (ReferenceEquals(item, null))
 				return item; // item is 'null' but 'null' does not work with generic T

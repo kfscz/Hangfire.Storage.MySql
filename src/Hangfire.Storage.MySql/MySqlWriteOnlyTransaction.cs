@@ -38,11 +38,10 @@ namespace Hangfire.Storage.MySql
 
             AcquireJobLock();
 
-            QueueCommand(x => 
-                x.Connection.Execute(
-                    $"update `{_storageOptions.TablesPrefix}Job` set ExpireAt = @expireAt where Id = @id",
-                    new { expireAt = DateTime.UtcNow.Add(expireIn), id = jobId },
-                    x));
+            QueueCommand(x => x.Connection!.Execute(
+                $"update `{_storageOptions.TablesPrefix}Job` set ExpireAt = @expireAt where Id = @id",
+                new { expireAt = DateTime.UtcNow.Add(expireIn), id = jobId },
+                x));
         }
         
         public override void PersistJob(string jobId)
@@ -52,7 +51,7 @@ namespace Hangfire.Storage.MySql
             AcquireJobLock();
 
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}Job` set ExpireAt = NULL where Id = @id",
                     new { id = jobId },
                     x));
@@ -64,7 +63,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireStateLock();
             AcquireJobLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"insert into `{_storageOptions.TablesPrefix}State` (JobId, Name, Reason, CreatedAt, Data) " +
                 "values (@jobId, @name, @reason, @createdAt, @data); " +
                 $"update `{_storageOptions.TablesPrefix}Job` set StateId = last_insert_id(), StateName = @name where Id = @id;",
@@ -74,7 +73,7 @@ namespace Hangfire.Storage.MySql
                     name = state.Name,
                     reason = state.Reason,
                     createdAt = DateTime.UtcNow,
-                    data = JobHelper.ToJson(state.SerializeData()),
+                    data = SerializationHelper.Serialize(state.SerializeData()),
                     id = jobId
                 },
                 x));
@@ -85,7 +84,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("AddJobState jobId={0}, state={1}", jobId, state);
 
             AcquireStateLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"insert into `{_storageOptions.TablesPrefix}State` (JobId, Name, Reason, CreatedAt, Data) " +
                 "values (@jobId, @name, @reason, @createdAt, @data)",
                 new {
@@ -93,7 +92,7 @@ namespace Hangfire.Storage.MySql
                     name = state.Name,
                     reason = state.Reason,
                     createdAt = DateTime.UtcNow,
-                    data = JobHelper.ToJson(state.SerializeData())
+                    data = SerializationHelper.Serialize(state.SerializeData())
                 },
                 x));
         }
@@ -114,7 +113,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireCounterLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"insert into `{_storageOptions.TablesPrefix}Counter` (`Key`, `Value`) values (@key, @value)",
                     new { key, value = +1 },
                     x));
@@ -128,7 +127,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireCounterLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"insert into `{_storageOptions.TablesPrefix}Counter` (`Key`, `Value`, `ExpireAt`) values (@key, @value, @expireAt)",
                     new { key, value = +1, expireAt = DateTime.UtcNow.Add(expireIn) },
                     x));
@@ -140,7 +139,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireCounterLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"insert into `{_storageOptions.TablesPrefix}Counter` (`Key`, `Value`) values (@key, @value)",
                     new { key, value = -1 },
                     x));
@@ -152,7 +151,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireCounterLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"insert into `{_storageOptions.TablesPrefix}Counter` (`Key`, `Value`, `ExpireAt`) values (@key, @value, @expireAt)",
                     new { key, value = -1, expireAt = DateTime.UtcNow.Add(expireIn) },
                     x));
@@ -168,7 +167,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("AddToSet key={0} value={1}", key, value);
 
             AcquireSetLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"INSERT INTO `{_storageOptions.TablesPrefix}Set` (`Key`, `Value`, `Score`) " +
                 "VALUES (@key, @value, @score) " +
                 "ON DUPLICATE KEY UPDATE `Score` = @score",
@@ -185,7 +184,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireSetLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"insert into `{_storageOptions.TablesPrefix}Set` (`Key`, Value, Score) values (@key, @value, 0.0)", 
                     items.Select(value => new { key = key, value = value }).ToList(),
                     x));
@@ -197,7 +196,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("RemoveFromSet key={0} value={1}", key, value);
 
             AcquireSetLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"delete from `{_storageOptions.TablesPrefix}Set` where `Key` = @key and Value = @value",
                 new { key, value },
                 x));
@@ -211,7 +210,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireSetLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}Set` set ExpireAt = @expireAt where `Key` = @key", 
                     new { key = key, expireAt = DateTime.UtcNow.Add(expireIn) },
                     x));
@@ -222,7 +221,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("InsertToList key={0} value={1}", key, value);
 
             AcquireListLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"insert into `{_storageOptions.TablesPrefix}List` (`Key`, Value) values (@key, @value)",
                 new { key, value },
                 x));
@@ -237,7 +236,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireListLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}List` set ExpireAt = @expireAt where `Key` = @key", 
                     new { key = key, expireAt = DateTime.UtcNow.Add(expireIn) },
                     x));
@@ -248,7 +247,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("RemoveFromList key={0} value={1}", key, value);
 
             AcquireListLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"delete from `{_storageOptions.TablesPrefix}List` where `Key` = @key and Value = @value",
                 new { key, value },
                 x));
@@ -259,7 +258,7 @@ namespace Hangfire.Storage.MySql
             Logger.TraceFormat("TrimList key={0} from={1} to={2}", key, keepStartingFrom, keepEndingAt);
 
             AcquireListLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $@"/* trim list */
                 delete lst
                 from `{_storageOptions.TablesPrefix}List` lst
@@ -280,7 +279,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireHashLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}Hash` set ExpireAt = null where `Key` = @key", 
                     new { key = key },
                     x));
@@ -294,7 +293,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireSetLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}Set` set ExpireAt = null where `Key` = @key", 
                     new { key = key },
                     x));
@@ -303,28 +302,23 @@ namespace Hangfire.Storage.MySql
         public override void RemoveSet(string key)
         {
             Logger.TraceFormat("RemoveSet key={0} ", key);
-
             if (key == null) throw new ArgumentNullException("key");
-
             AcquireSetLock();
-            QueueCommand(x => 
-                x.Connection.Execute(
+            QueueCommand(t => t.Connection!.Execute(
                     $"delete from `{_storageOptions.TablesPrefix}Set` where `Key` = @key", 
                     new { key = key },
-                    x));
+                    t));
         }
 
         public override void PersistList(string key)
         {
             Logger.TraceFormat("PersistList key={0} ", key);
-
             if (key == null) throw new ArgumentNullException("key");
-
             AcquireListLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(t => t.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}List` set ExpireAt = null where `Key` = @key", 
                     new { key = key },
-                    x));
+                    t));
         }
 
         public override void SetRangeInHash(string key, IEnumerable<KeyValuePair<string, string>> keyValuePairs)
@@ -336,7 +330,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireHashLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $@"/* SetRangeInHash */
                     insert into `{_storageOptions.TablesPrefix}Hash` (`Key`, Field, Value) " +
                     "values (@key, @field, @value) " +
@@ -353,7 +347,7 @@ namespace Hangfire.Storage.MySql
 
             AcquireHashLock();
             QueueCommand(x => 
-                x.Connection.Execute(
+                x.Connection!.Execute(
                     $"update `{_storageOptions.TablesPrefix}Hash` set ExpireAt = @expireAt where `Key` = @key", 
                     new { key = key, expireAt = DateTime.UtcNow.Add(expireIn) },
                     x));
@@ -366,7 +360,7 @@ namespace Hangfire.Storage.MySql
             if (key == null) throw new ArgumentNullException("key");
 
             AcquireHashLock();
-            QueueCommand(x => x.Connection.Execute(
+            QueueCommand(x => x.Connection!.Execute(
                 $"delete from `{_storageOptions.TablesPrefix}Hash` where `Key` = @key", 
                 new { key },
                 x));
