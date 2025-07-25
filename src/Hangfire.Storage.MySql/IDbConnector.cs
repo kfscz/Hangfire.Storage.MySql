@@ -4,10 +4,14 @@ using System.Data.Common;
 
 namespace Hangfire.Storage.MySql;
 
+/// <summary>
+/// Creates connection to database
+/// </summary>
 public interface IDbConnector
 {
   /// <summary>
   /// Creates and open new connection to the database.
+  /// Implemention should ensure that <c>Allow User Variables</c> is enabled in the connection string.
   /// </summary>
   IDbConnection Connect();
 }
@@ -15,7 +19,7 @@ public interface IDbConnector
 public class DbProviderFactoryConnector : IDbConnector
 {
 
-  readonly System.Data.Common.DbProviderFactory _factory;
+  readonly DbProviderFactory _factory;
   readonly string _connectionString;
 
   public DbProviderFactoryConnector(DbProviderFactory factory, string connectionString)
