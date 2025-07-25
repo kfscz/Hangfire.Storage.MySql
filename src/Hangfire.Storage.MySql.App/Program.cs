@@ -38,7 +38,7 @@ namespace Hangfire.Storage.MySql.App
         .Select(l => l.Count)
         .Subscribe(c => Console.WriteLine($"{c / 5.0:N}/s"));
 
-      const string connectionString = "Server=localhost;Database=hangfire;Uid=test;Pwd=test";
+      const string connectionString = "Server=devubu;Database=hf1;Uid=hf1;Pwd=sporak";
       const string tablePrefix = "with_locks_";
       IDbConnector connector = new DbProviderFactoryConnector(
         MySqlConnector.MySqlConnectorFactory.Instance, connectionString);
