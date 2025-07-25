@@ -4,8 +4,8 @@ using System.Runtime.CompilerServices;
 
 namespace Hangfire.Storage.MySql
 {
-	public class AssemblyHook
-	{
-		private AssemblyHook() { }
-	}
+  public class AssemblyHook
+  {
+    private AssemblyHook() { }
+  }
 }

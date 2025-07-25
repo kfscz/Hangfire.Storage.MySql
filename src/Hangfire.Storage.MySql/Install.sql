@@ -28,12 +28,12 @@ CREATE TABLE `[tablesPrefix]Counter` (
 
 
 CREATE TABLE `[tablesPrefix]AggregatedCounter` (
-	Id int(11) NOT NULL AUTO_INCREMENT,
+  Id int(11) NOT NULL AUTO_INCREMENT,
   `Key` nvarchar(100) NOT NULL,
-	`Value` int(11) NOT NULL,
-	ExpireAt datetime DEFAULT NULL,
-	PRIMARY KEY (`Id`),
-	UNIQUE KEY `IX_[tablesPrefix]CounterAggregated_Key` (`Key`)
+  `Value` int(11) NOT NULL,
+  ExpireAt datetime DEFAULT NULL,
+  PRIMARY KEY (`Id`),
+  UNIQUE KEY `IX_[tablesPrefix]CounterAggregated_Key` (`Key`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
 
@@ -128,22 +128,22 @@ CREATE TABLE `[tablesPrefix]Set` (
 
 CREATE TABLE `[tablesPrefix]State`
 (
-	Id int(11) NOT NULL AUTO_INCREMENT,
-	JobId int(11) NOT NULL,
+  Id int(11) NOT NULL AUTO_INCREMENT,
+  JobId int(11) NOT NULL,
   Name nvarchar(20) NOT NULL,
   Reason nvarchar(100) NULL,
-	CreatedAt datetime(6) NOT NULL,
-	Data longtext NULL,
-	PRIMARY KEY (`Id`),
-	KEY `FK_[tablesPrefix]HangFire_State_Job` (`JobId`),
-	CONSTRAINT `FK_[tablesPrefix]HangFire_State_Job` FOREIGN KEY (`JobId`) REFERENCES `[tablesPrefix]Job` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE
+  CreatedAt datetime(6) NOT NULL,
+  Data longtext NULL,
+  PRIMARY KEY (`Id`),
+  KEY `FK_[tablesPrefix]HangFire_State_Job` (`JobId`),
+  CONSTRAINT `FK_[tablesPrefix]HangFire_State_Job` FOREIGN KEY (`JobId`) REFERENCES `[tablesPrefix]Job` (`Id`) ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;
 
 CREATE TABLE `[tablesPrefix]List`
 (
-	`Id` int(11) NOT NULL AUTO_INCREMENT,
+  `Id` int(11) NOT NULL AUTO_INCREMENT,
   `Key` nvarchar(100) NOT NULL,
-	`Value` longtext NULL,
-	`ExpireAt` datetime(6) NULL,
-	PRIMARY KEY (`Id`)
+  `Value` longtext NULL,
+  `ExpireAt` datetime(6) NULL,
+  PRIMARY KEY (`Id`)
 ) ENGINE=InnoDB DEFAULT CHARACTER SET utf8 COLLATE utf8_general_ci;

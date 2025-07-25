@@ -12,101 +12,101 @@ using Microsoft.Extensions.Logging;
 
 namespace Hangfire.Storage.MySql.App
 {
-	internal static class Program
-	{
-		private static readonly Subject<Unit> Ticks = new Subject<Unit>();
+  internal static class Program
+  {
+    private static readonly Subject<Unit> Ticks = new Subject<Unit>();
 
-		public static void Main(string[] args)
-		{
-			var loggerFactory = new LoggerFactory();
-			loggerFactory.AddProvider(new ColorConsoleProvider());
-			var serviceCollection = new ServiceCollection();
-			serviceCollection.AddSingleton<ILoggerFactory>(loggerFactory);
+    public static void Main(string[] args)
+    {
+      var loggerFactory = new LoggerFactory();
+      loggerFactory.AddProvider(new ColorConsoleProvider());
+      var serviceCollection = new ServiceCollection();
+      serviceCollection.AddSingleton<ILoggerFactory>(loggerFactory);
 
-			Configure(serviceCollection);
-			var serviceProvider = serviceCollection.BuildServiceProvider();
-			Execute(loggerFactory, serviceProvider, args);
-		}
+      Configure(serviceCollection);
+      var serviceProvider = serviceCollection.BuildServiceProvider();
+      Execute(loggerFactory, serviceProvider, args);
+    }
 
-		private static void Configure(ServiceCollection serviceCollection) { }
+    private static void Configure(ServiceCollection serviceCollection) { }
 
-		private static void Execute(
-			ILoggerFactory loggerFactory, IServiceProvider serviceProvider, string[] args)
-		{
-			Ticks
-				.Buffer(TimeSpan.FromSeconds(5))
-				.Select(l => l.Count)
-				.Subscribe(c => Console.WriteLine($"{c / 5.0:N}/s"));
+    private static void Execute(
+      ILoggerFactory loggerFactory, IServiceProvider serviceProvider, string[] args)
+    {
+      Ticks
+        .Buffer(TimeSpan.FromSeconds(5))
+        .Select(l => l.Count)
+        .Subscribe(c => Console.WriteLine($"{c / 5.0:N}/s"));
 
-			const string connectionString = "Server=localhost;Database=hangfire;Uid=test;Pwd=test";
-			const string tablePrefix = "with_locks_";
-			IDbConnector connector = new DbProviderFactoryConnector(
-				MySqlConnector.MySqlConnectorFactory.Instance, connectionString);
+      const string connectionString = "Server=localhost;Database=hangfire;Uid=test;Pwd=test";
+      const string tablePrefix = "with_locks_";
+      IDbConnector connector = new DbProviderFactoryConnector(
+        MySqlConnector.MySqlConnectorFactory.Instance, connectionString);
 
       GlobalConfiguration.Configuration.UseLogProvider(new HLogProvider(loggerFactory));
 
-			using (var storage = new MySqlStorage(
+      using (var storage = new MySqlStorage(
         connector, new MySqlStorageOptions { TablesPrefix = tablePrefix }))
-			{
-				var cancel = new CancellationTokenSource();
-				var task = Task.WhenAll(
-					Task.Run(() => Producer(loggerFactory, storage, cancel.Token), cancel.Token),
-					Task.Run(() => Consumer(loggerFactory, storage, cancel.Token), cancel.Token),
-					Task.CompletedTask
-				);
+      {
+        var cancel = new CancellationTokenSource();
+        var task = Task.WhenAll(
+          Task.Run(() => Producer(loggerFactory, storage, cancel.Token), cancel.Token),
+          Task.Run(() => Consumer(loggerFactory, storage, cancel.Token), cancel.Token),
+          Task.CompletedTask
+        );
 
-				Console.ReadLine();
-				cancel.Cancel();
-				task.Wait(CancellationToken.None);
-			}
-		}
+        Console.ReadLine();
+        cancel.Cancel();
+        task.Wait(CancellationToken.None);
+      }
+    }
 
-		private static Task Producer(
-			ILoggerFactory loggerFactory, JobStorage storage, CancellationToken token)
-		{
-			var logger = loggerFactory.CreateLogger("main");
-			var counter = 0;
-			var client = new BackgroundJobClient(storage);
+    private static Task Producer(
+      ILoggerFactory loggerFactory, JobStorage storage, CancellationToken token)
+    {
+      var logger = loggerFactory.CreateLogger("main");
+      var counter = 0;
+      var client = new BackgroundJobClient(storage);
 
-			void Create()
-			{
-				while (!token.IsCancellationRequested)
-				{
-					var i = Interlocked.Increment(ref counter);
-					try
-					{
-						client.Schedule(() => HandleJob(i), DateTimeOffset.UtcNow);
-						Ticks.OnNext(Unit.Default);
-					}
-					catch (Exception e)
-					{
-						logger.LogError(e, "Scheduling failed");
-					}
-				}
-			}
+      void Create()
+      {
+        while (!token.IsCancellationRequested)
+        {
+          var i = Interlocked.Increment(ref counter);
+          try
+          {
+            client.Schedule(() => HandleJob(i), DateTimeOffset.UtcNow);
+            Ticks.OnNext(Unit.Default);
+          }
+          catch (Exception e)
+          {
+            logger.LogError(e, "Scheduling failed");
+          }
+        }
+      }
 
-			return Task.WhenAll(
-				Task.Run(Create, token),
-				Task.Run(Create, token),
-				Task.Run(Create, token),
-				Task.Run(Create, token));
-		}
+      return Task.WhenAll(
+        Task.Run(Create, token),
+        Task.Run(Create, token),
+        Task.Run(Create, token),
+        Task.Run(Create, token));
+    }
 
-		private static Task Consumer(
-			ILoggerFactory loggerFactory, JobStorage storage, CancellationToken token)
-		{
-			var server = new BackgroundJobServer(
-				new BackgroundJobServerOptions { WorkerCount = 16 },
-				storage);
+    private static Task Consumer(
+      ILoggerFactory loggerFactory, JobStorage storage, CancellationToken token)
+    {
+      var server = new BackgroundJobServer(
+        new BackgroundJobServerOptions { WorkerCount = 16 },
+        storage);
 
-			return Task.Run(
-				() => {
-					token.WaitHandle.WaitOne();
-					server.SendStop();
-					server.WaitForShutdown(TimeSpan.FromSeconds(30));
-				}, token);
-		}
+      return Task.Run(
+        () => {
+          token.WaitHandle.WaitOne();
+          server.SendStop();
+          server.WaitForShutdown(TimeSpan.FromSeconds(30));
+        }, token);
+    }
 
-		public static void HandleJob(int i) { Ticks.OnNext(Unit.Default); }
-	}
+    public static void HandleJob(int i) { Ticks.OnNext(Unit.Default); }
+  }
 }
