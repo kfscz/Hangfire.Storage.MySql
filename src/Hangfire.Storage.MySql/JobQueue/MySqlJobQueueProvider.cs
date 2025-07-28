@@ -1,29 +1,23 @@
 ﻿using System;
 
-namespace Hangfire.Storage.MySql.JobQueue
+namespace Hangfire.Storage.MySql.JobQueue;
+
+internal class MySqlJobQueueProvider : IPersistentJobQueueProvider
 {
-    internal class MySqlJobQueueProvider : IPersistentJobQueueProvider
-    {
-        private readonly IPersistentJobQueue _jobQueue;
-        private readonly IPersistentJobQueueMonitoringApi _monitoringApi;
 
-        public MySqlJobQueueProvider(MySqlStorage storage, MySqlStorageOptions options)
-        {
-            if (storage == null) throw new ArgumentNullException("storage");
-            if (options == null) throw new ArgumentNullException("options");
+  readonly IPersistentJobQueue _jobQueue;
+  readonly IPersistentJobQueueMonitoringApi _monitoringApi;
 
-            _jobQueue = new MySqlJobQueue(storage, options);
-            _monitoringApi = new MySqlJobQueueMonitoringApi(storage, options);
-        }
+  public MySqlJobQueueProvider(MySqlStorage storage, MySqlStorageOptions options)
+  {
+    if (storage is null) throw new ArgumentNullException(nameof(storage));
+    if (options is null) throw new ArgumentNullException(nameof(options));
+    _jobQueue = new MySqlJobQueue(storage, options);
+    _monitoringApi = new MySqlJobQueueMonitoringApi(storage, options);
+  }
 
-        public IPersistentJobQueue GetJobQueue()
-        {
-            return _jobQueue;
-        }
+  public IPersistentJobQueue GetJobQueue() => _jobQueue;
 
-        public IPersistentJobQueueMonitoringApi GetJobQueueMonitoringApi()
-        {
-            return _monitoringApi;
-        }
-    }
+  public IPersistentJobQueueMonitoringApi GetJobQueueMonitoringApi() => _monitoringApi;
+
 }

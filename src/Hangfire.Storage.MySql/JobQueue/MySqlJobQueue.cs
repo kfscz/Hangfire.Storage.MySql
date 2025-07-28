@@ -12,10 +12,10 @@ namespace Hangfire.Storage.MySql.JobQueue;
 internal class MySqlJobQueue : IPersistentJobQueue
 {
 
-  private static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlJobQueue));
+  static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlJobQueue));
 
-  private readonly MySqlStorage _storage;
-  private readonly MySqlStorageOptions _options;
+  readonly MySqlStorage _storage;
+  readonly MySqlStorageOptions _options;
 
   public MySqlJobQueue(MySqlStorage storage, MySqlStorageOptions options)
   {
