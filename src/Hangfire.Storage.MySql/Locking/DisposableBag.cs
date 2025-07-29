@@ -7,7 +7,7 @@ namespace System;
 
 /// <summary>A disposable collection of disposables.</summary>
 /// <seealso cref="IDisposable" />
-public class DisposableBag: IDisposable // TODO: private
+class DisposableBag: IDisposable
 {
   private readonly object _lock = new object();
   private readonly List<IDisposable> _bag = new List<IDisposable>();
@@ -20,14 +20,7 @@ public class DisposableBag: IDisposable // TODO: private
   /// <summary>Creates disposable collection of disposables starting with provided ones.</summary>
   /// <param name="disposables">The disposables.</param>
   /// <returns>New disposable collection of disposables.</returns>
-  public static DisposableBag Create(IEnumerable<IDisposable> disposables) =>
-    new DisposableBag(disposables);
-
-  /// <summary>Creates disposable collection of disposables.</summary>
-  /// <param name="disposables">The disposables.</param>
-  /// <returns>New disposable collection of disposables.</returns>
-  public static DisposableBag Create(params IDisposable[] disposables) =>
-    new DisposableBag(disposables);
+  public static DisposableBag Create(params IEnumerable<IDisposable> disposables) => new(disposables);
 
   /// <summary>Initializes a new instance of the <see cref="DisposableBag"/> class.</summary>
   public DisposableBag() { }
