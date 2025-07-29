@@ -15,10 +15,11 @@
     <PackageId>Hangfire.Storage.MySql.Alu</PackageId>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <Authors>Milosz Krajewski, Jan Janoušek</Authors>
-    <Version>2.2.0-dev</Version>
+    <Version>2.2.0-dev1</Version>
     <Description>Hangfire storage implementation for MySQL</Description>
     <PackageReleaseNotes>
       2.2.0-dev: Test build for .NET 8.0, removing dependecies and fixing tons of warnings.
+      2.2.0-dev1: `MySqlFetchedJob` refactored to not use `Dapper`.
     </PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
