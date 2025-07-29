@@ -1,12 +1,11 @@
 ﻿using System.Collections.Generic;
 
-namespace Hangfire.Storage.MySql.JobQueue
+namespace Hangfire.Storage.MySql.JobQueue;
+
+public interface IPersistentJobQueueMonitoringApi
 {
-    public interface IPersistentJobQueueMonitoringApi
-    {
-        IEnumerable<string> GetQueues();
-        IEnumerable<int> GetEnqueuedJobIds(string queue, int from, int perPage);
-        IEnumerable<int> GetFetchedJobIds(string queue, int from, int perPage);
-        EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue);
-    }
+  IEnumerable<string> GetQueues();
+  IEnumerable<int> GetEnqueuedJobIds(string queue, int from, int perPage);
+  IEnumerable<int> GetFetchedJobIds(string queue, int from, int perPage);
+  EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue);
 }
