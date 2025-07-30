@@ -28,11 +28,10 @@ public class MySqlStorage : JobStorage, IDisposable
 
     if (storageOptions.PrepareSchemaIfNecessary)
     {
-      using (var connection = CreateAndOpenConnection())
-      {
-        MySqlObjectsInstaller.Install(connection, storageOptions.TablesPrefix);
-        MySqlObjectsInstaller.Upgrade(connection, storageOptions.TablesPrefix);
-      }
+      using var connection = CreateAndOpenConnection();
+      var installer = new MySqlObjectsInstaller(connection, storageOptions.TablesPrefix);
+      installer.Install();
+      installer.Upgrade();
     }
 
     QueueProviders = new (new MySqlJobQueueProvider(this, _storageOptions));

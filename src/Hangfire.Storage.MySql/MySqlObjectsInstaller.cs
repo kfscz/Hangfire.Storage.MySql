@@ -9,26 +9,29 @@ namespace Hangfire.Storage.MySql;
 
 using Migration = (string Id, string Script);
 
-internal static class MySqlObjectsInstaller
+class MySqlObjectsInstaller(
+  IDbConnection connection, string? tablesPrefix, TimeSpan? migrationTimeout = null)
 {
 
-  static readonly TimeSpan MigrationTimeout = TimeSpan.FromMinutes(1);
+  const double DEFAULT_MIGRATION_TIMEOUT_MINUTES = 1.0;
+
   static readonly ILog Log = LogProvider.GetLogger(typeof(MySqlStorage));
 
-  public static void Install(IDbConnection connection, string? tablesPrefix = null)
-  {
-    if (connection is null) throw new ArgumentNullException(nameof(connection));
-    var prefix = tablesPrefix ?? string.Empty;
+  readonly TimeSpan _migrationTimeout = migrationTimeout ?? TimeSpan.FromMinutes(DEFAULT_MIGRATION_TIMEOUT_MINUTES);
+  readonly IDbConnection _connection = connection ?? throw new ArgumentNullException(nameof(connection));
+  readonly string _tablesPrefix = tablesPrefix ?? string.Empty;
 
-    if (IsAlreadyInstalled(connection, prefix))
+  public void Install()
+  {
+    if (IsAlreadyInstalled())
     {
       Log.Info("DB tables already exist. Exit install");
     }
     else
     {
       Log.Info("Start installing Hangfire SQL objects...");
-      string installScript = ReadInstallScriptFromTemplate(prefix);
-      using (var command = connection.CreateCommand(installScript))
+      string installScript = ReadInstallScriptFromTemplate();
+      using (var command = _connection.CreateCommand(installScript))
       {
         command.ExecuteNonQuery();
       }
@@ -36,36 +39,32 @@ internal static class MySqlObjectsInstaller
     }
   }
 
-  public static void Upgrade(IDbConnection connection, string? tablesPrefix = null)
+  public void Upgrade()
   {
-    if (connection is null) throw new ArgumentNullException(nameof(connection));
-    var prefix = tablesPrefix ?? string.Empty;
-
     using (ResourceLock.AcquireOne(
-        connection, prefix,
-        MigrationTimeout, CancellationToken.None,
+        _connection, _tablesPrefix,
+        _migrationTimeout, CancellationToken.None,
         LockableResource.Migration))
     {
-      EnsureMigrationsTable(connection, prefix);
-      var appliedMigrations = ReadAppliedMigrations(connection, prefix);
-      var migrationDefinitions = ReadMigrationDefinitionsFromResources(prefix);
+      EnsureMigrationsTable();
+      var appliedMigrations = ReadAppliedMigrations();
+      var migrationDefinitions = ReadMigrationDefinitionsFromResources();
       var migrationsToApply = migrationDefinitions
-        .Where(m => !appliedMigrations.Contains(m.Id))
-        .ToArray();
+        .Where(m => !appliedMigrations.Contains(m.Id));
       foreach (var migration in migrationsToApply)
       {
-        ApplyMigration(connection, migration.Script, prefix, migration.Id);
+        ApplyMigration(migration);
       }
     }
   }
 
-  private static void EnsureMigrationsTable(IDbConnection connection, string prefix)
+  private void EnsureMigrationsTable()
   {
-    if (!connection.TableExists(prefix, "Migration"))
+    if (!_connection.TableExists(_tablesPrefix, "Migration"))
     {
-      using var command = connection.CreateCommand($"""
+      using var command = _connection.CreateCommand($"""
         /* Create migrations table */
-        CREATE TABLE {prefix}Migration (
+        CREATE TABLE {_tablesPrefix}Migration (
           Id nvarchar(128) not null, 
           ExecutedAt datetime(6) not null, 
           primary key (`Id`)
@@ -75,11 +74,10 @@ internal static class MySqlObjectsInstaller
     }
   }
 
-  private static HashSet<string> ReadAppliedMigrations(
-    IDbConnection connection, string prefix)
+  private HashSet<string> ReadAppliedMigrations()
   { 
-    using var command = connection
-      .CreateCommand($"SELECT trim(Id) as Id FROM {prefix}Migration;");
+    using var command = _connection
+      .CreateCommand($"SELECT trim(Id) as Id FROM {_tablesPrefix}Migration;");
     using var reader = command.ExecuteReader();
     var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
     while (reader.Read())
@@ -92,25 +90,24 @@ internal static class MySqlObjectsInstaller
     return result;
   }
 
-  private static void ApplyMigration(
-      IDbConnection connection, string script, string prefix, string id)
+  private void ApplyMigration(Migration migration)
   {
     // NOTE: Some operations cannot be executed in transactions (create table?)
     // we will need some mechanism to handle that if we need it
-    using var transaction = connection.BeginTransaction();
-    using (var command = connection
-      .CreateCommand(script)
+    using var transaction = _connection.BeginTransaction();
+    using (var command = _connection
+      .CreateCommand(migration.Script)
       .WithTransaction(transaction))
     {
       command.ExecuteNonQuery();
     }
-    using (var command = connection
+    using (var command = _connection
       .CreateCommand("""
           INSERT INTO `{prefix}Migration` (Id, ExecutedAt)
           VALUES (TRIM(@id), @now);
           """)
       .WithTransaction(transaction)
-      .AddParameter("@id", id)
+      .AddParameter("@id", migration.Id)
       .AddParameter("@now", DateTime.UtcNow))
     {
       command.ExecuteNonQuery();
@@ -118,24 +115,24 @@ internal static class MySqlObjectsInstaller
     transaction.Commit();
   }
 
-  private static bool IsAlreadyInstalled(IDbConnection connection, string tablesPrefix)
-    => connection.TableExists(tablesPrefix, "Job");
+  private bool IsAlreadyInstalled()
+    => _connection.TableExists(_tablesPrefix, "Job");
 
-  private static string ProcessTemplate(string script, string tablesPrefix)
+  private string TranslateScriptTemplateToScript(string scriptTemplate)
   {
-    var sb = new StringBuilder(script);
-    sb.Replace("[tablesPrefix]", tablesPrefix);
+    var sb = new StringBuilder(scriptTemplate);
+    sb.Replace("[tablesPrefix]", _tablesPrefix);
     return sb.ToString();
   }
 
-  private static string ReadInstallScriptFromTemplate(string prefix)
+  private string ReadInstallScriptFromTemplate()
   {
     var scriptTemplate = ResourceHelper.GetStringResource("Install.sql");
-    var script = ProcessTemplate(scriptTemplate, prefix);
+    var script = TranslateScriptTemplateToScript(scriptTemplate);
     return script;
   }
 
-  private static IEnumerable<Migration> ReadMigrationDefinitionsFromResources(string tablePrefix)
+  private IEnumerable<Migration> ReadMigrationDefinitionsFromResources()
   {
     var document = XElement.Parse(ResourceHelper.GetStringResource("Migrations.xml"));
     var migrations = document
@@ -143,7 +140,7 @@ internal static class MySqlObjectsInstaller
         .Select(e => (
           Id: e.Attribute("id")?.Value?.Trim()
             ?? throw new InvalidOperationException("Missing migration Id"),
-          Script: ProcessTemplate(e.Value, tablePrefix)));
+          Script: TranslateScriptTemplateToScript(e.Value)));
     return migrations;
   }
 
