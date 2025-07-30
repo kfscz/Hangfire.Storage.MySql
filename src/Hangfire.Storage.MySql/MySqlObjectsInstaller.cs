@@ -1,23 +1,20 @@
-﻿using System;
-using System.Data;
-using System.Data.Common;
-using System.IO;
+﻿using System.Data;
 using System.Reflection;
 using Dapper;
 using Hangfire.Logging;
-using System.Linq;
 using System.Text;
-using System.Threading;
 using System.Xml.Linq;
 using Hangfire.Storage.MySql.Locking;
 
 namespace Hangfire.Storage.MySql;
 
+using Migration = (string Id, string Script);
+
 internal static class MySqlObjectsInstaller
 {
 
-  private static readonly TimeSpan MigrationTimeout = TimeSpan.FromMinutes(1);
-  private static readonly ILog Log = LogProvider.GetLogger(typeof(MySqlStorage));
+  static readonly TimeSpan MigrationTimeout = TimeSpan.FromMinutes(1);
+  static readonly ILog Log = LogProvider.GetLogger(typeof(MySqlStorage));
 
   public static void Install(IDbConnection connection, string? tablesPrefix = null)
   {
@@ -44,42 +41,42 @@ internal static class MySqlObjectsInstaller
 
   public static void Upgrade(IDbConnection connection, string? tablesPrefix = null)
   {
-    if (connection == null) throw new ArgumentNullException(nameof(connection));
-
+    if (connection is null) throw new ArgumentNullException(nameof(connection));
     var prefix = tablesPrefix ?? string.Empty;
-
     using (ResourceLock.AcquireOne(
         connection, prefix,
         MigrationTimeout, CancellationToken.None,
         LockableResource.Migration))
     {
-      var resourceName = $"{typeof(MySqlObjectsInstaller).Namespace}.Migrations.xml";
-      var document = XElement.Parse(GetStringResource(resourceName));
-
       EnsureMigrationsTable(connection, prefix);
-
-      var migrations = document
-          .Elements("migration")
-          .Select(e => new { id = e.Attribute("id")?.Value?.Trim(), script = e.Value })
-          .ToArray();
-
+      var migrations = ReadMigrations();
       foreach (var migration in migrations)
       {
-        var alreadyApplied = migration.id is not null
-          ? IsMigrationApplied(connection, prefix, migration.id)
-          : throw new InvalidOperationException("Missing migration Id");
-        if (alreadyApplied) continue;
-
-        ApplyMigration(connection, migration.script, prefix, migration.id);
+        if (!IsMigrationApplied(connection, prefix, migration.Id))
+        {
+          ApplyMigration(connection, migration.Script, prefix, migration.Id);
+        }
       }
     }
+  }
+
+  private static IEnumerable<Migration> ReadMigrations()
+  {
+    var resourceName = $"{typeof(MySqlObjectsInstaller).Namespace}.Migrations.xml";
+    var document = XElement.Parse(GetStringResource(resourceName));
+    var migrations = document
+        .Elements("migration")
+        .Select(e => (
+          Id: e.Attribute("id")?.Value?.Trim() ?? throw new InvalidOperationException("Missing migration Id"),
+          Script: e.Value))
+        .ToArray();
+    return migrations;
   }
 
   private static void EnsureMigrationsTable(IDbConnection connection, string prefix)
   {
     var tableExists = connection.ExecuteScalar<string>($"SHOW TABLES LIKE '{prefix}Migration';") != null;
     if (tableExists) return;
-
     connection.Execute(
         $@"/* Create migrations table */
                 create table {prefix}Migration (
