@@ -46,7 +46,7 @@ class MySqlObjectsInstaller(
         _migrationTimeout, CancellationToken.None,
         LockableResource.Migration))
     {
-      EnsureMigrationsTable();
+      EnsureMigrationsTableExists();
       var appliedMigrations = ReadAppliedMigrations();
       var migrationDefinitions = ReadMigrationDefinitionsFromResources();
       var migrationsToApply = migrationDefinitions
@@ -58,7 +58,7 @@ class MySqlObjectsInstaller(
     }
   }
 
-  private void EnsureMigrationsTable()
+  private void EnsureMigrationsTableExists()
   {
     if (!_connection.TableExists(_tablesPrefix, "Migration"))
     {
