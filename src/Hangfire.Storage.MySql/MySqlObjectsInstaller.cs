@@ -1,10 +1,9 @@
 ﻿using System.Data;
-using System.Reflection;
-using Dapper;
 using Hangfire.Logging;
 using System.Text;
 using System.Xml.Linq;
 using Hangfire.Storage.MySql.Locking;
+using System.Diagnostics;
 
 namespace Hangfire.Storage.MySql;
 
@@ -18,79 +17,79 @@ internal static class MySqlObjectsInstaller
 
   public static void Install(IDbConnection connection, string? tablesPrefix = null)
   {
-    if (connection == null) throw new ArgumentNullException(nameof(connection));
-
+    if (connection is null) throw new ArgumentNullException(nameof(connection));
     var prefix = tablesPrefix ?? string.Empty;
 
-    if (TablesExists(connection, prefix))
+    if (IsAlreadyInstalled(connection, prefix))
     {
       Log.Info("DB tables already exist. Exit install");
-      return;
     }
-
-    var resourceName = $"{typeof(MySqlObjectsInstaller).Namespace}.Install.sql";
-    var script = GetStringResource(resourceName);
-    var formattedScript = GetFormattedScript(script, prefix);
-
-    Log.Info("Start installing Hangfire SQL objects...");
-
-    connection.Execute(formattedScript);
-
-    Log.Info("Hangfire SQL objects installed.");
+    else
+    {
+      Log.Info("Start installing Hangfire SQL objects...");
+      string installScript = ReadInstallScriptFromTemplate(prefix);
+      using (var command = connection.CreateCommand(installScript))
+      {
+        command.ExecuteNonQuery();
+      }
+      Log.Info("Hangfire SQL objects installed.");
+    }
   }
 
   public static void Upgrade(IDbConnection connection, string? tablesPrefix = null)
   {
     if (connection is null) throw new ArgumentNullException(nameof(connection));
     var prefix = tablesPrefix ?? string.Empty;
+
     using (ResourceLock.AcquireOne(
         connection, prefix,
         MigrationTimeout, CancellationToken.None,
         LockableResource.Migration))
     {
       EnsureMigrationsTable(connection, prefix);
-      var migrations = ReadMigrations();
-      foreach (var migration in migrations)
+      var appliedMigrations = ReadAppliedMigrations(connection, prefix);
+      var migrationDefinitions = ReadMigrationDefinitionsFromResources(prefix);
+      var migrationsToApply = migrationDefinitions
+        .Where(m => !appliedMigrations.Contains(m.Id))
+        .ToArray();
+      foreach (var migration in migrationsToApply)
       {
-        if (!IsMigrationApplied(connection, prefix, migration.Id))
-        {
-          ApplyMigration(connection, migration.Script, prefix, migration.Id);
-        }
+        ApplyMigration(connection, migration.Script, prefix, migration.Id);
       }
     }
   }
 
-  private static IEnumerable<Migration> ReadMigrations()
-  {
-    var resourceName = $"{typeof(MySqlObjectsInstaller).Namespace}.Migrations.xml";
-    var document = XElement.Parse(GetStringResource(resourceName));
-    var migrations = document
-        .Elements("migration")
-        .Select(e => (
-          Id: e.Attribute("id")?.Value?.Trim() ?? throw new InvalidOperationException("Missing migration Id"),
-          Script: e.Value))
-        .ToArray();
-    return migrations;
-  }
-
   private static void EnsureMigrationsTable(IDbConnection connection, string prefix)
   {
-    var tableExists = connection.ExecuteScalar<string>($"SHOW TABLES LIKE '{prefix}Migration';") != null;
-    if (tableExists) return;
-    connection.Execute(
-        $@"/* Create migrations table */
-                create table {prefix}Migration (
-                    Id nvarchar(128) not null, 
-                    ExecutedAt datetime(6) not null, 
-                    primary key (`Id`)
-                ) engine=InnoDB default character set utf8 collate utf8_general_ci;");
+    if (!connection.TableExists(prefix, "Migration"))
+    {
+      using var command = connection.CreateCommand($"""
+        /* Create migrations table */
+        CREATE TABLE {prefix}Migration (
+          Id nvarchar(128) not null, 
+          ExecutedAt datetime(6) not null, 
+          primary key (`Id`)
+        ) ENGINE = InnoDB default character set utf8 collate utf8_general_ci;
+        """);
+      command.ExecuteNonQuery();
+    }
   }
 
-  private static bool IsMigrationApplied(IDbConnection connection, string prefix, string id)
-  {
-    return connection.QueryFirst<int>(
-        $"select count(*) from `{prefix}Migration` where Id = @id",
-        new { id }) > 0;
+  private static HashSet<string> ReadAppliedMigrations(
+    IDbConnection connection, string prefix)
+  { 
+    using var command = connection
+      .CreateCommand($"SELECT trim(Id) as Id FROM {prefix}Migration;");
+    using var reader = command.ExecuteReader();
+    var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    while (reader.Read())
+    {
+      var id = reader["Id"] as string ?? string.Empty;
+      Debug.Assert(!string.IsNullOrEmpty(id));
+      Debug.Assert(!result.Contains(id));
+      result.Add(id);
+    }
+    return result;
   }
 
   private static void ApplyMigration(
@@ -98,53 +97,54 @@ internal static class MySqlObjectsInstaller
   {
     // NOTE: Some operations cannot be executed in transactions (create table?)
     // we will need some mechanism to handle that if we need it
-    using (var transaction = connection.BeginTransaction())
+    using var transaction = connection.BeginTransaction();
+    using (var command = connection
+      .CreateCommand(script)
+      .WithTransaction(transaction))
     {
-      connection.Execute(
-          GetFormattedScript(script, prefix),
-          null,
-          transaction);
-      connection.Execute(
-          $"insert into `{prefix}Migration` (Id, ExecutedAt) values (@id, @now)",
-          new { id, now = DateTime.UtcNow },
-          transaction);
-      transaction.Commit();
+      command.ExecuteNonQuery();
     }
+    using (var command = connection
+      .CreateCommand("""
+          INSERT INTO `{prefix}Migration` (Id, ExecutedAt)
+          VALUES (TRIM(@id), @now);
+          """)
+      .WithTransaction(transaction)
+      .AddParameter("@id", id)
+      .AddParameter("@now", DateTime.UtcNow))
+    {
+      command.ExecuteNonQuery();
+    }
+    transaction.Commit();
   }
 
-  private static bool TablesExists(IDbConnection connection, string tablesPrefix) =>
-      connection.ExecuteScalar<string>($"SHOW TABLES LIKE '{tablesPrefix}Job';") != null;
+  private static bool IsAlreadyInstalled(IDbConnection connection, string tablesPrefix)
+    => connection.TableExists(tablesPrefix, "Job");
 
-  private static string GetStringResource(string resourceName)
-  {
-#if NET45
-          var assembly = typeof(MySqlObjectsInstaller).Assembly;
-#else
-    var assembly = typeof(MySqlObjectsInstaller).GetTypeInfo().Assembly;
-#endif
-
-    using (var stream = assembly.GetManifestResourceStream(resourceName))
-    {
-      if (stream == null)
-      {
-        throw new InvalidOperationException(String.Format(
-            "Requested resource `{0}` was not found in the assembly `{1}`.",
-            resourceName,
-            assembly));
-      }
-
-      using (var reader = new StreamReader(stream))
-      {
-        return reader.ReadToEnd();
-      }
-    }
-  }
-
-  private static string GetFormattedScript(string script, string tablesPrefix)
+  private static string ProcessTemplate(string script, string tablesPrefix)
   {
     var sb = new StringBuilder(script);
     sb.Replace("[tablesPrefix]", tablesPrefix);
-
     return sb.ToString();
   }
+
+  private static string ReadInstallScriptFromTemplate(string prefix)
+  {
+    var scriptTemplate = ResourceHelper.GetStringResource("Install.sql");
+    var script = ProcessTemplate(scriptTemplate, prefix);
+    return script;
+  }
+
+  private static IEnumerable<Migration> ReadMigrationDefinitionsFromResources(string tablePrefix)
+  {
+    var document = XElement.Parse(ResourceHelper.GetStringResource("Migrations.xml"));
+    var migrations = document
+        .Elements("migration")
+        .Select(e => (
+          Id: e.Attribute("id")?.Value?.Trim()
+            ?? throw new InvalidOperationException("Missing migration Id"),
+          Script: ProcessTemplate(e.Value, tablePrefix)));
+    return migrations;
+  }
+
 }
