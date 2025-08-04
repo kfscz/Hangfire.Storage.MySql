@@ -1,22 +1,19 @@
-﻿using Dapper;
-using Hangfire.Logging;
+﻿using Hangfire.Logging;
 using Hangfire.Server;
 using Hangfire.Storage.MySql.Locking;
-using System;
 using System.Data;
-using System.Threading;
 
 namespace Hangfire.Storage.MySql;
 
-internal class CountersAggregator: IServerComponent
+internal class CountersAggregator : IServerComponent
 {
-  private static readonly ILog Logger = LogProvider.GetLogger(typeof(CountersAggregator));
+  static readonly ILog Logger = LogProvider.GetLogger(typeof(CountersAggregator));
 
-  private const int NumberOfRecordsInSinglePass = 1000;
-  private static readonly TimeSpan DelayBetweenPasses = TimeSpan.FromMilliseconds(500);
+  const int NumberOfRecordsInSinglePass = 1000;
+  static readonly TimeSpan DelayBetweenPasses = TimeSpan.FromMilliseconds(500);
 
-  private readonly MySqlStorage _storage;
-  private readonly MySqlStorageOptions _options;
+  readonly MySqlStorage _storage;
+  readonly MySqlStorageOptions _options;
 
   public CountersAggregator(MySqlStorage storage, MySqlStorageOptions options)
   {
@@ -32,10 +29,10 @@ internal class CountersAggregator: IServerComponent
     while (true)
     {
       var removedCount = _storage.UseConnection(AggregateCounter);
-
       if (removedCount < NumberOfRecordsInSinglePass)
+      {
         break;
-
+      }
       cancellationToken.WaitHandle.WaitOne(DelayBetweenPasses);
       cancellationToken.ThrowIfCancellationRequested();
     }
@@ -48,34 +45,41 @@ internal class CountersAggregator: IServerComponent
     using (ResourceLock.AcquireOne(
       connection, _options.TablesPrefix, LockableResource.Counter))
     {
-      return connection.Execute(
-        GetAggregationQuery(),
-        new { now = DateTime.UtcNow, count = NumberOfRecordsInSinglePass });
+      string commantText = GetAggregationQuery();
+      using var command = connection
+        .CreateCommand(commantText)
+        .AddParameter("@count", NumberOfRecordsInSinglePass);
+      return command.ExecuteNonQuery();
     }
   }
 
   private string GetAggregationQuery()
   {
     var prefix = _options.TablesPrefix;
-    return $@"
-                create temporary table __refs__ engine = memory as
-                    select `Id` from `{prefix}Counter` limit @count;
+    return $"""
+      CREATE TEMPORARY TABLE __refs__ 
+      ENGINE = memory AS
+      SELECT `Id` 
+        FROM `{prefix}Counter` 
+        LIMIT @count;
 
-                insert into `{prefix}AggregatedCounter` (`Key`, Value, ExpireAt)
-                    select `Key`, SumValue, MaxExpireAt
-                    from (
-                        select `Key`, sum(Value) as SumValue, max(ExpireAt) AS MaxExpireAt
-                        from `{prefix}Counter` c join __refs__ r on (r.Id = c.Id)
-                        group by `Key`
-                    ) _
-                    on duplicate key update
-                        Value = Value + values(Value),
-                        ExpireAt = greatest(ExpireAt, values(ExpireAt));
+      INSERT INTO `{prefix}AggregatedCounter` (`Key`, Value, ExpireAt)
+      SELECT `Key`, SumValue, MaxExpireAt
+      FROM (
+        SELECT `Key`, sum(Value) as SumValue, max(ExpireAt) AS MaxExpireAt
+        FROM `{prefix}Counter` c
+        JOIN __refs__ r ON r.Id = c.Id
+        GROUP BY `Key`
+      ) _
+      ON DUPLICATE KEY UPDATE
+        Value = Value + values(Value),
+        ExpireAt = greatest(ExpireAt, values(ExpireAt));
 
-                delete c from `{prefix}Counter` c join __refs__ r on (r.Id = c.Id);
+      DELETE c FROM `{prefix}Counter` c
+      JOIN __refs__ r ON r.Id = c.Id;
 
-                drop table __refs__;
-            ";
+      DROP TABLE __refs__;
+      """;
   }
 
   public override string ToString() => GetType().ToString();
