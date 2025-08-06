@@ -12,28 +12,29 @@ namespace Hangfire.Storage.MySql;
 
 public class MySqlStorage : JobStorage, IDisposable
 {
-  //private static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlStorage));
+  //static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlStorage));
 
-  private readonly IDbConnector _connector;
-  private readonly MySqlStorageOptions _storageOptions;
+  readonly IDbConnector _connector;
+  readonly MySqlStorageOptions _storageOptions;
 
   public virtual PersistentJobQueueProviderCollection QueueProviders { get; private set; }
 
   public MySqlStorage(IDbConnector connector, MySqlStorageOptions storageOptions)
   {
-    if (storageOptions == null) throw new ArgumentNullException(nameof(storageOptions));
-
+    if (storageOptions is null)
+    {
+      throw new ArgumentNullException(nameof(storageOptions));
+    }
     _connector = connector;
     _storageOptions = storageOptions;
-
     if (storageOptions.PrepareSchemaIfNecessary)
     {
+      // I don't like the idea of calling DB from constructor... that's just ugly
       using var connection = CreateAndOpenConnection();
       var installer = new MySqlObjectsInstaller(connection, storageOptions.TablesPrefix);
       installer.Install();
       installer.Upgrade();
     }
-
     QueueProviders = new (new MySqlJobQueueProvider(this, _storageOptions));
   }
 
@@ -49,15 +50,11 @@ public class MySqlStorage : JobStorage, IDisposable
     logger.InfoFormat("    Queue poll interval: {0}.", _storageOptions.QueuePollInterval);
   }
 
-  public override IMonitoringApi GetMonitoringApi()
-  {
-    return new MySqlMonitoringApi(this, _storageOptions);
-  }
+  public override IMonitoringApi GetMonitoringApi() 
+    => new MySqlMonitoringApi(this, _storageOptions);
 
-  public override IStorageConnection GetConnection()
-  {
-    return new MySqlStorageConnection(this, _storageOptions);
-  }
+  public override IStorageConnection GetConnection() 
+    => new MySqlStorageConnection(this, _storageOptions);
 
   internal void UseTransaction([InstantHandle] Action<IDbTransaction> action)
   {
@@ -69,7 +66,7 @@ public class MySqlStorage : JobStorage, IDisposable
   }
 
   internal T UseTransaction<T>(
-      [InstantHandle] Func<IDbTransaction, T> func, IsolationLevel? isolationLevel)
+    [InstantHandle] Func<IDbTransaction, T> func, IsolationLevel? isolationLevel)
   {
     var connection = CreateAndOpenConnection();
     try
@@ -100,7 +97,6 @@ public class MySqlStorage : JobStorage, IDisposable
   internal T UseConnection<T>([InstantHandle] Func<IDbConnection, T> func)
   {
     IDbConnection? connection = null;
-
     try
     {
       connection = CreateAndOpenConnection();
@@ -119,16 +115,8 @@ public class MySqlStorage : JobStorage, IDisposable
     return connection;
   }
 
-  internal void ReleaseConnection(IDbConnection? connection)
-  {
-    if (connection != null)
-    {
-      connection.Dispose();
-    }
-  }
+  internal void ReleaseConnection(IDbConnection? connection) => connection?.Dispose();
 
-  public void Dispose()
-  {
-  }
+  public void Dispose() { }
 }
 
