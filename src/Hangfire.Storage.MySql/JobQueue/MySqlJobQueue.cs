@@ -1,32 +1,30 @@
-﻿using System;
-using System.Data;
-using Dapper;
+﻿using System.Data;
 using Hangfire.Logging;
-using System.Linq;
-using System.Threading;
 using Hangfire.Storage.MySql.Locking;
 using System.Data.Common;
 
 namespace Hangfire.Storage.MySql.JobQueue;
 
-internal class MySqlJobQueue : IPersistentJobQueue
+internal class MySqlJobQueue(
+  MySqlStorage storage,  MySqlStorageOptions options
+  ) : IPersistentJobQueue
 {
 
   static readonly ILog Logger = LogProvider.GetLogger(typeof(MySqlJobQueue));
 
-  readonly MySqlStorage _storage;
-  readonly MySqlStorageOptions _options;
-
-  public MySqlJobQueue(MySqlStorage storage, MySqlStorageOptions options)
-  {
-    _storage = storage ?? throw new ArgumentNullException(nameof(storage));
-    _options = options ?? throw new ArgumentNullException(nameof(options));
-  }
+  readonly MySqlStorage _storage = storage ?? throw new ArgumentNullException(nameof(storage));
+  readonly MySqlStorageOptions _options = options ?? throw new ArgumentNullException(nameof(options));
 
   public IFetchedJob Dequeue(string[] queues, CancellationToken cancellationToken)
   {
-    if (queues is null || !queues.Any())
+    if (queues is null)
+    {
+      throw new ArgumentNullException(nameof(queues));
+    }
+    else if (queues.Length == 0)
+    {
       throw new ArgumentException("Queue array must be non-empty.", nameof(queues));
+    }
 
     var token = Guid.NewGuid().ToString();
     // I'm not sure if this is used correctly...
@@ -42,10 +40,10 @@ internal class MySqlJobQueue : IPersistentJobQueue
         cancellationToken.ThrowIfCancellationRequested();
         using (ResourceLock.AcquireOne(connection, _options.TablesPrefix, LockableResource.Queue))
         {
-          var updated = ClaimJob(connection, queues, expiration, token);
+          var updated = ClaimJobLockless(connection, queues, expiration, token);
           if (updated != 0)
           {
-            var fetchedJob = FetchJobByToken(connection, token);
+            var fetchedJob = FetchJobByTokenLockless(connection, token);
             return new MySqlFetchedJob(
               storage: _storage,
               options: _options,
@@ -64,49 +62,70 @@ internal class MySqlJobQueue : IPersistentJobQueue
     }
     finally
     {
-      if (connection != null)
-        _storage.ReleaseConnection(connection);
+      _storage.ReleaseConnection(connection);
     }
   }
 
-  private int ClaimJob(
+  private int ClaimJobLockless(
     IDbConnection connection, string[] queues, TimeSpan expiration, string token)
   {
     var now = DateTime.Now;
     var then = now.Subtract(expiration);
-    return connection.Execute(
-      $@"/* MySqlJobQueue.ClaimJob */
-                update `{_options.TablesPrefix}JobQueue` 
-                set FetchedAt = @now, FetchToken = @token
-                where (Queue in @queues) and (FetchedAt is null or FetchedAt < @then)
-                limit 1",
-      new { queues, now, then, token });
+    var queueRestriction = queues.SqlInOperator("Queue", "@queue", out var queueParams);
+    string updateCommand = $"""
+      /* {nameof(MySqlJobQueue)}.{nameof(ClaimJobLockless)} */
+      UPDATE `{_options.TablesPrefix}JobQueue` 
+      SET 
+        FetchedAt = @now, 
+        FetchToken = @token
+      WHERE ({queueRestriction}) and (FetchedAt is null or FetchedAt < @then)
+      LIMIT 1;
+      """;
+    using var command = connection.CreateCommand(updateCommand)
+      .AddParameters(queueParams)
+      .AddParameter("@now", now)
+      .AddParameter("@then", then)
+      .AddParameter("@token", token);
+    return command.ExecuteNonQuery();
   }
 
-  private FetchedJob FetchJobByToken(IDbConnection connection, string token)
+  private FetchedJob FetchJobByTokenLockless(IDbConnection connection, string token)
   {
-    return connection.QueryFirst<FetchedJob>(
-      $@"/* MySqlJobQueue.FetchJobByToken */
-                select Id, JobId, Queue
-                from `{_options.TablesPrefix}JobQueue`
-                where FetchToken = @token",
-      new { token });
+    using var command = connection
+      .CreateCommand($"""
+        /* {nameof(MySqlJobQueue)}.{nameof(FetchJobByTokenLockless)} */
+        SELECT Id, JobId, Queue
+        FROM `{_options.TablesPrefix}JobQueue`
+        WHERE FetchToken = @token;
+        """)
+      .AddParameter("@token", token);
+    using var reader = command.ExecuteReader();
+    return reader.Read()
+      ? new () {
+          Id = Convert.ToInt32(reader["Id"]),
+          JobId = Convert.ToInt32(reader["JobId"]),
+          Queue = (string)reader["Queue"],
+        }
+      : throw new InvalidOperationException("Expected at least on row result");
   }
 
   private void Enqueue(
     IDbConnection connection, IDbTransaction? transaction, string queue, string jobId)
   {
     Logger.TraceFormat("Enqueue JobId={0} Queue={1}", jobId, queue);
-
     using (ResourceLock.AcquireOne(
       connection, transaction, _options.TablesPrefix, LockableResource.Queue))
     {
-      connection.Execute(
-        $@"/* MySqlJobQueue.Enqueue */
-                    insert into `{_options.TablesPrefix}JobQueue` (JobId, Queue)
-                    values (@jobId, @queue)",
-        new { jobId, queue },
-        transaction);
+      using var command = connection
+        .CreateCommand($"""
+          /* {nameof(MySqlJobQueue)}.{nameof(Enqueue)} */
+          INSERT INTO `{_options.TablesPrefix}JobQueue` (JobId, Queue)
+          VALUES (@jobId, @queue);
+          """)
+        .WithTransaction(transaction)
+        .AddParameter("@jobId", jobId)
+        .AddParameter("@queue", queue);
+      command.ExecuteNonQuery();
     }
   }
 
