@@ -10,21 +10,24 @@ public class ResourceLock : IDisposable
 
   readonly IDbConnection _connection;
   readonly IDbTransaction? _transaction;
-  readonly string _resource;
+  readonly LockableResource _resource;
+  readonly string _tablePrefix;
 
   private ResourceLock(
     IDbConnection connection,
     IDbTransaction? transaction,
-    DateTime timeout, CancellationToken token,
-    string resourceName)
+    LockableResource resourceName,
+    string tablePrefix)
   {
     _connection = connection ?? throw new ArgumentNullException(nameof(connection));
     _transaction = transaction;
-    _resource = resourceName ?? throw new ArgumentNullException(nameof(resourceName));
-    Acquire(token, timeout);
+    _resource = resourceName;
+    _tablePrefix = tablePrefix;
   }
 
   private static DateTime Now => DateTime.UtcNow;
+
+  string LockName => $"{_tablePrefix}/{_resource}";
 
   private void Acquire(CancellationToken token, DateTime expiration)
   {
@@ -63,7 +66,7 @@ public class ResourceLock : IDisposable
     using var command = _connection
       .CreateCommand("SELECT GET_LOCK(@name, @timeout);")
       .WithTransaction(_transaction)
-      .AddParameter("@name", _resource)
+      .AddParameter("@name", LockName)
       .AddParameter("@timeout", timeout.TotalSeconds);
     var result = command.ExecuteScalar();
     int? resultInt = result is null or DBNull
@@ -87,7 +90,7 @@ public class ResourceLock : IDisposable
     using var command = _connection
       .CreateCommand("DO RELEASE_LOCK(@name);")
       .WithTransaction(_transaction)
-      .AddParameter("@name", _resource);
+      .AddParameter("@name", LockName);
     command.ExecuteNonQuery();
   }
 
@@ -136,7 +139,7 @@ public class ResourceLock : IDisposable
     TimeSpan timeout, CancellationToken token,
     LockableResource resource) =>
     AcquireOne(
-      connection, transaction, tablePrefix, timeout, token, resource.ToString());
+      connection, transaction, tablePrefix, timeout, token, resource);
 
   public static IDisposable AcquireMany(
     IDbConnection connection, string tablePrefix,
@@ -150,7 +153,7 @@ public class ResourceLock : IDisposable
   public static IDisposable AcquireMany(
     IDbTransaction transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
-    LockableResource[] resources) =>
+    IEnumerable<LockableResource> resources) =>
     AcquireMany(
       transaction.Connection!, transaction, tablePrefix,
       timeout, token,
@@ -159,42 +162,25 @@ public class ResourceLock : IDisposable
   public static IDisposable AcquireMany(
     IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
-    LockableResource[] resources) =>
-    AcquireMany(
-      connection, transaction, tablePrefix, timeout, token,
-      resources.Select(x => x.ToString()).ToArray());
-
-  private static IDisposable AcquireOne(
-    IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
-    TimeSpan timeout, CancellationToken token,
-    string resourceName) =>
-    // this is slightly ineffective to use AcquireMany here
-    // but it is nothing comparing to DB operation anyway 
-    AcquireMany(
-      connection, transaction, tablePrefix, timeout, token, resourceName);
-
-  private static IDisposable AcquireMany(
-    IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
-    TimeSpan timeout, CancellationToken token,
-    params string[] resourceNames)
+    IEnumerable<LockableResource> resources)
   {
     var handles = new DisposableBag();
-
     try
     {
       var expiration = Now.Add(timeout); // stop trying @
-
-      // order alphabetically to prevent dead-locks
-      var orderedResourceNames = resourceNames.OrderBy(x => x);
-
+      // Originialy, resources where sorted by resource name alphabetically ("To prevent
+      // dead-lock"). I don't see any reason for that specific ordering, so I order them by
+      // value, so they are ordered the same way every time (I guess, for preventing
+      // dead-locks)
+      var orderedResourceNames = resources.OrderBy(x => x);
       foreach (var resourceName in orderedResourceNames)
       {
         var handle = new ResourceLock(
           connection, transaction,
-          expiration, token,
-          $"{tablePrefix}/{resourceName}");
+          resourceName, tablePrefix
+          );
+        handle.Acquire(token, expiration);
         handles.Add(handle);
-
         token.ThrowIfCancellationRequested();
       }
     }

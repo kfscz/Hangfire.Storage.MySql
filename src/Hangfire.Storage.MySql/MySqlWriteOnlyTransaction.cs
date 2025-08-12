@@ -374,7 +374,7 @@ internal class MySqlWriteOnlyTransaction : JobStorageTransaction
       using (ResourceLock.AcquireMany(
           transaction, _storageOptions.TablesPrefix,
           TimeSpan.FromSeconds(30), CancellationToken.None,
-          _resources.ToArray()))
+          _resources))
       {
         foreach (var command in _commandQueue)
         {
