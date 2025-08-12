@@ -16,7 +16,7 @@
     <PackageTags>hangfire;mysql</PackageTags>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <Authors>Milosz Krajewski, Jan Janoušek</Authors>
-    <Version>2.2.0-dev4</Version>
+    <Version>2.2.0-dev5</Version>
     <Description>Hangfire storage implementation for MySQL</Description>
     <RepositoryUrl>https://github.com/kfscz/Hangfire.Storage.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -24,8 +24,9 @@
       2.2.0-dev: Test build for .NET 8.0, removing dependecies and fixing tons of warnings.
       2.2.0-dev1: `MySqlFetchedJob` refactored to not use `Dapper`.
       2.2.0-dev2: `MySqlObjectsInstaller` refactored to not use `Dapper`.
-      2.2.0-dev3: Removing dependeny on `Dapper` from `CountersAggregator` and `MySqlJobQueue`.
+      2.2.0-dev3: Removing dependency on `Dapper` from `CountersAggregator` and `MySqlJobQueue`.
       2.2.0-dev4: Removing dependency on `Dapper` from `MySqlJobQueueCountersAggregator`.
+      2.2.0-dev5: Removing dependency on `Dapper` from `ResourceLock`.
     </PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
