@@ -108,43 +108,81 @@ public class ResourceLock : IDisposable
 
   public static IDisposable AcquireOne(
     IDbConnection connection, string tablePrefix, LockableResource resource) =>
-    AcquireOne(connection, null, tablePrefix, resource);
+    AcquireOne(
+      connection: connection, 
+      transaction: null,
+      tablePrefix: tablePrefix,
+      timeout: DefaultTimeout,
+      token: CancellationToken.None, 
+      resource: resource);
 
   public static IDisposable AcquireOne(
     IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
     LockableResource resource) =>
     AcquireOne(
-      connection, transaction, tablePrefix,
-      DefaultTimeout, CancellationToken.None,
-      resource);
+      connection: connection,
+      transaction: transaction,
+      tablePrefix: tablePrefix,
+      timeout: DefaultTimeout,
+      token: CancellationToken.None,
+      resource: resource);
 
   public static IDisposable AcquireOne(
     IDbConnection connection, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
     LockableResource resource) =>
-    AcquireOne(connection, null, tablePrefix, timeout, token, resource);
+    AcquireOne(
+      connection: connection,
+      transaction: null,
+      tablePrefix: tablePrefix,
+      timeout: timeout,
+      token: token,
+      resource: resource);
 
   public static IDisposable AcquireOne(
     IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
     LockableResource resource) =>
-    AcquireOne(
-      connection, transaction, tablePrefix, timeout, token, resource);
+    AcquireMany(
+      connection: connection,
+      transaction: transaction,
+      tablePrefix: tablePrefix,
+      timeout: timeout,
+      token: token,
+      resources: [resource]);
 
   public static IDisposable AcquireMany(
     IDbTransaction transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
-    IEnumerable<LockableResource> resources) =>
-    AcquireMany(
-      transaction.Connection!, transaction, tablePrefix,
-      timeout, token,
-      resources);
+    IEnumerable<LockableResource> resources) => 
+      transaction.Connection is null
+      ? throw new ArgumentException("Connection must be set", nameof(transaction))
+      : AcquireMany(
+          connection: transaction.Connection,
+          transaction: transaction,
+          tablePrefix: tablePrefix,
+          timeout: timeout,
+          token: token,
+          resources: resources);
 
   public static IDisposable AcquireMany(
     IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
     IEnumerable<LockableResource> resources)
   {
+    if (connection is null)
+    {
+      throw new ArgumentNullException(nameof(connection));
+    }
+    if (tablePrefix is null)
+    {
+      throw new ArgumentNullException(nameof(tablePrefix));
+    }
+    if (resources is null)
+    {
+      throw new ArgumentNullException(nameof(resources));
+    }
+
     var handles = new DisposableBag();
     try
     {
