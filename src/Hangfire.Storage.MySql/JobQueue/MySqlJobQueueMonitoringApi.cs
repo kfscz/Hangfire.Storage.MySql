@@ -1,93 +1,102 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Dapper;
+using System.Data;
+using System.Diagnostics;
 
 namespace Hangfire.Storage.MySql.JobQueue;
 
-internal class MySqlJobQueueMonitoringApi : IPersistentJobQueueMonitoringApi
+class MySqlJobQueueMonitoringApi(
+    MySqlStorage storage, MySqlStorageOptions storageOptions
+  ) : IPersistentJobQueueMonitoringApi
 {
 
-  private static readonly TimeSpan QueuesCacheTimeout = TimeSpan.FromSeconds(5);
-  private readonly object _cacheLock = new object();
-  private List<string> _queuesCache = new List<string>();
-  private DateTime _cacheUpdated;
+  static readonly TimeSpan QueuesCacheTimeout = TimeSpan.FromSeconds(5.0);
 
-  private readonly MySqlStorage _storage;
-  private readonly MySqlStorageOptions _storageOptions;
-
-  public MySqlJobQueueMonitoringApi(MySqlStorage storage, MySqlStorageOptions storageOptions)
-  {
-    _storage = storage ?? throw new ArgumentNullException(nameof(storage));
-    _storageOptions = storageOptions;
-  }
+  readonly object _cacheLock = new();
+  readonly MySqlStorage _storage = storage 
+    ?? throw new ArgumentNullException(nameof(storage));
+  readonly MySqlStorageOptions _storageOptions = storageOptions
+    ?? throw new ArgumentNullException(nameof(storageOptions));
+  List<string> _queuesCache = [];
+  DateTime _cacheUpdated;
 
   public IEnumerable<string> GetQueues()
   {
     lock (_cacheLock)
     {
-      if (_queuesCache.Count == 0 || _cacheUpdated.Add(QueuesCacheTimeout) < DateTime.UtcNow)
+      if (_queuesCache.Count == 0 || DateTime.UtcNow - _cacheUpdated > QueuesCacheTimeout)
       {
-        var result = _storage.UseConnection(connection => connection
-          .Query<JobQueueRow>($"""
-            SELECT distinct(Queue) as Queue 
-            FROM `{_storageOptions.TablesPrefix}JobQueue`;
-            """)
-          .Select(x => x.Queue)
-          .OfType<string>()
-          .ToList()
-        );
-
-        _queuesCache = result;
+        _queuesCache = _storage.UseConnection(SelectDistinctQueues);
         _cacheUpdated = DateTime.UtcNow;
       }
-
-      return _queuesCache.ToList();
+      return new List<string>(_queuesCache); // cloning
     }
   }
 
-  class JobQueueRow
+  List<string> SelectDistinctQueues(System.Data.IDbConnection connection)
   {
-#pragma warning disable CS0649
-    public string? Queue;
-#pragma warning restore CS0649
+    using var command = connection.CreateCommand($"""
+      SELECT DISTINCT(Queue) as Queue
+      FROM `{_storageOptions.TablesPrefix}JobQueue`;
+      """);
+    using var reader = command.ExecuteReader();
+    var result = new List<string>();
+    while (reader.Read())
+    {
+      Debug.Assert(reader["Queue"] is string);
+      if (reader["Queue"] is string s)
+      {
+        result.Add(s);
+      }
+    }
+    return result;
   }
 
   public IEnumerable<int> GetEnqueuedJobIds(string queue, int @from, int perPage)
   {
-    string sqlQuery = $@"
-SET @rank=0;
-select r.JobId from (
-  select jq.JobId, @rank := @rank+1 AS `rank` 
-  from `{_storageOptions.TablesPrefix}JobQueue` jq
-  where jq.Queue = @queue
-  order by jq.Id
-) as r
-where r.`rank` between @start and @end;";
+    List<int> selectJobIds(System.Data.IDbConnection connection)
+    {
+      using var command = connection
+        .CreateCommand($"""
+          SET @rank = 0;
+          SELECT r.JobId FROM (
+            SELECT jq.JobId, @rank := @rank+1 AS `rank` 
+            FROM `{_storageOptions.TablesPrefix}JobQueue` jq
+            WHERE jq.Queue = @queue
+            ORDER BY jq.Id
+          ) AS r
+          WHERE r.`rank` between @start and @end;
+          """)
+        .AddParameter("@queue", queue)
+        .AddParameter("@start", @from + 1)
+        .AddParameter("@end", @from + perPage);
+      using var reader = command.ExecuteReader();
+      var result = new List<int>();
+      while (reader.Read())
+      {
+        result.Add(Convert.ToInt32(reader["JobId"]));
+      }
+      return result;
+    }
 
-    return _storage.UseConnection(connection =>
-        connection.Query<int>(
-            sqlQuery,
-            new { queue = queue, start = @from + 1, end = @from + perPage }));
+    return _storage.UseConnection(selectJobIds);
   }
 
-  public IEnumerable<int> GetFetchedJobIds(string queue, int @from, int perPage)
-  {
-    return Enumerable.Empty<int>();
-  }
+  public IEnumerable<int> GetFetchedJobIds(string queue, int @from, int perPage) => [];
 
   public EnqueuedAndFetchedCountDto GetEnqueuedAndFetchedCount(string queue)
   {
-    return _storage.UseConnection(connection =>
+    EnqueuedAndFetchedCountDto selectCount(IDbConnection connection)
     {
-      var result =
-                connection.Query<int>(
-                    $"select count(Id) from `{_storageOptions.TablesPrefix}JobQueue` where Queue = @queue", new { queue = queue }).Single();
-
-      return new EnqueuedAndFetchedCountDto
-      {
-        EnqueuedCount = result,
-      };
-    });
+      using var command = connection
+        .CreateCommand($"""
+          SELECT count(Id)
+          FROM `{_storageOptions.TablesPrefix}JobQueue`
+          WHERE Queue = @queue;
+          """)
+        .AddParameter("@queue", queue);
+      var count = command.ExecuteScalar();
+      return new () { EnqueuedCount = Convert.ToInt32(count) };
+    }
+    
+    return _storage.UseConnection(selectCount);
   }
 }
