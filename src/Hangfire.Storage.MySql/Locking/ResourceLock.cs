@@ -106,10 +106,6 @@ public class ResourceLock : IDisposable
     command.ExecuteNonQuery();
   }
 
-  //public static IDisposable AcquireOne(
-  //  IDbTransaction transaction, string tablePrefix, LockableResource resource) =>
-  //  AcquireOne(transaction.Connection, transaction, tablePrefix, resource);
-
   public static IDisposable AcquireOne(
     IDbConnection connection, string tablePrefix, LockableResource resource) =>
     AcquireOne(connection, null, tablePrefix, resource);
@@ -129,26 +125,11 @@ public class ResourceLock : IDisposable
     AcquireOne(connection, null, tablePrefix, timeout, token, resource);
 
   public static IDisposable AcquireOne(
-    IDbTransaction transaction, string tablePrefix,
-    TimeSpan timeout, CancellationToken token,
-    LockableResource resource) =>
-    AcquireOne(transaction.Connection!, transaction, tablePrefix, timeout, token, resource);
-
-  public static IDisposable AcquireOne(
     IDbConnection connection, IDbTransaction? transaction, string tablePrefix,
     TimeSpan timeout, CancellationToken token,
     LockableResource resource) =>
     AcquireOne(
       connection, transaction, tablePrefix, timeout, token, resource);
-
-  public static IDisposable AcquireMany(
-    IDbConnection connection, string tablePrefix,
-    TimeSpan timeout, CancellationToken token,
-    LockableResource[] resources) =>
-    AcquireMany(
-      connection, null, tablePrefix,
-      timeout, token,
-      resources);
 
   public static IDisposable AcquireMany(
     IDbTransaction transaction, string tablePrefix,
