@@ -1,19 +1,16 @@
-using System;
 using System.Data;
-using System.Linq;
-using System.Threading;
-using Dapper;
+using System.Diagnostics;
 
 namespace Hangfire.Storage.MySql.Locking;
 
 public class ResourceLock : IDisposable
 {
 
-  private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5);
+  static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(5.0);
 
-  private readonly IDbConnection _connection;
-  private readonly IDbTransaction? _transaction;
-  private readonly string _resource;
+  readonly IDbConnection _connection;
+  readonly IDbTransaction? _transaction;
+  readonly string _resource;
 
   private ResourceLock(
     IDbConnection connection,
@@ -21,9 +18,9 @@ public class ResourceLock : IDisposable
     DateTime timeout, CancellationToken token,
     string resourceName)
   {
-    _connection = connection;
+    _connection = connection ?? throw new ArgumentNullException(nameof(connection));
     _transaction = transaction;
-    _resource = resourceName;
+    _resource = resourceName ?? throw new ArgumentNullException(nameof(resourceName));
     Acquire(token, timeout);
   }
 
@@ -33,42 +30,78 @@ public class ResourceLock : IDisposable
   {
     // always acquire if it is free, regardless of expiration
     if (TryAcquireLock(TimeSpan.Zero))
+    {
       return;
+    }
 
     while (true)
     {
       var now = Now;
       if (now > expiration)
+      {
         throw new TimeoutException("Lock acquisition period expired");
+      }
 
       token.ThrowIfCancellationRequested();
 
       // trim time to be between 0s and 1s (to allow Cancellation)
       var secondsLeft = Math.Min(Math.Max(expiration.Subtract(now).TotalSeconds, 0), 1);
       if (TryAcquireLock(TimeSpan.FromSeconds(secondsLeft)))
+      {
         return;
+      }
     }
   }
 
   private bool TryAcquireLock(TimeSpan timeout)
   {
-    var success = _connection.QueryFirst<int>(
-      "select get_lock(@name, @timeout)",
-      new { name = _resource, timeout = timeout.TotalSeconds },
-      _transaction);
-    return success != 0;
+    /* MySQL documentation for GET_LOCK:
+     * Returns 1 if the lock was obtained successfully, 0 if the attempt timed out (for 
+     * example, because another client has previously locked the name), or NULL if an error 
+     * occurred (such as running out of memory or the thread was killed with mysqladmin kill). 
+     */
+    using var command = _connection
+      .CreateCommand("SELECT GET_LOCK(@name, @timeout);")
+      .WithTransaction(_transaction)
+      .AddParameter("@name", _resource)
+      .AddParameter("@timeout", timeout.TotalSeconds);
+    var result = command.ExecuteScalar();
+    int? resultInt = result is null or DBNull
+      ? null 
+      : Convert.ToInt32(result);
+    Debug.Assert(resultInt is null or 0 or 1);
+    // I guess, if I get error (result is null), than I did not acquire lock
+    return resultInt.HasValue && resultInt.Value == 1;
   }
 
   private void Release()
   {
     // Logger.TraceFormat("Release resource={0}", _resource);
-    _connection.Execute("do release_lock(@name)", new { name = _resource }, _transaction);
+    /* MySQL documentation for RELEASE_LOCK:
+     * Releases the lock named by the string str that was obtained with GET_LOCK(). Returns 1 
+     * if the lock was released, 0 if the lock was not established by this thread (in which 
+     * case the lock is not released), and NULL if the named lock did not exist. The lock does 
+     * not exist if it was never obtained by a call to GET_LOCK() or if it has previously 
+     * been released. 
+     */
+    using var command = _connection
+      .CreateCommand("DO RELEASE_LOCK(@name);")
+      .WithTransaction(_transaction)
+      .AddParameter("@name", _resource);
+    command.ExecuteNonQuery();
   }
 
   public void Dispose() => Release();
 
-  public static void ReleaseAll(IDbConnection connection) =>
-    connection.Execute("do release_all_locks()");
+  public static void ReleaseAll(IDbConnection connection)
+  {
+    /* MySQL documentation for RELEASE_ALL_LOCKS:
+     *  Releases all named locks held by the current session and returns the number of locks 
+     *  released (0 if there were none)
+     */
+    using var command = connection.CreateCommand("DO RELEASE_ALL_LOCKS();");
+    command.ExecuteNonQuery();
+  }
 
   //public static IDisposable AcquireOne(
   //  IDbTransaction transaction, string tablePrefix, LockableResource resource) =>
