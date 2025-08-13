@@ -64,10 +64,121 @@ static class AdoNetExtensions
     return count > 0;
   }
 
+  public static DateTime GetDateTime(this IDataRecord rec, string field)
+  { 
+    return rec.GetNullableDateTime(field) 
+      ?? throw new DataException($"Value of field '{field}' cannot be null.");
+  }
+
+  public static DateTime? GetNullableDateTime(this IDataRecord rec, string field)
+  { 
+    if (field is null)
+    {
+      throw new ArgumentNullException(nameof(field));
+    }
+    var obj = rec[field];
+    return obj switch
+    {
+      DateTime dt => dt,
+      null or DBNull => null,
+      _ => Convert.ToDateTime(obj)
+    };
+  }
+
+  public static int GetInt(this IDataRecord rec, string field)
+  {
+    return rec.GetNullableInt(field) 
+      ?? throw new DataException($"Value of field '{field}' cannot be null.");
+  }
+
+  public static int? GetNullableInt(this IDataRecord rec, string field)
+  {
+    if (field is null)
+    {
+      throw new ArgumentNullException(nameof(field));
+    }
+    var obj = rec[field];
+    return obj switch
+    {
+      int i => i,
+      null or DBNull => null,
+      _ => Convert.ToInt32(obj)
+    };
+  }
+
+  public static long GetLong(this IDataRecord rec, string field)
+  {
+    return rec.GetNullableLong(field) 
+      ?? throw new DataException($"Value of field '{field}' cannot be null.");
+  }
+
+  public static long? GetNullableLong(this IDataRecord rec, string field)
+  {
+    if (field is null)
+    {
+      throw new ArgumentNullException(nameof(field));
+    }
+    var obj = rec[field];
+    return obj switch
+    {
+      long i => i,
+      null or DBNull => null,
+      _ => Convert.ToInt64(obj)
+    };
+  }
+
+  /// <summary>
+  /// Gets a string value from the IDataRecord by field name.
+  /// </summary>
+  /// <exception cref="DataException">When returned values is null</exception>
+  public static string GetString(this IDataRecord rec, string field)
+  { 
+    return rec.GetNullableString(field) 
+      ?? throw new DataException($"Value of field '{field}' cannot be null.");
+  }
+
+  public static string? GetNullableString(this IDataRecord rec, string field)
+  {
+    if (field is null)
+    {
+      throw new ArgumentNullException(nameof(field));
+    }
+    var obj = rec[field];
+    return obj switch
+    {
+      string s => s,
+      null or DBNull => null,
+      _ => obj.ToString()
+    };
+  }
+
 }
 
 static class SqlHelper
 {
+  public static string SqlInOperator(
+    this IEnumerable<int> values, string field, string parameterNamePrefix)
+  {
+    if (string.IsNullOrWhiteSpace(field))
+    {
+      throw new ArgumentException($"'{nameof(field)}' cannot be null or whitespace.", nameof(field));
+    }
+    if(values is not HashSet<int> valuesSet)
+    {
+      valuesSet = new (values);
+    }
+    if(valuesSet.Count == 0)
+    {
+      return "false";
+    }
+    else
+    {
+      field = field.Trim();
+      var commaSeparatedValues = string.Join(",", valuesSet);
+      return $"`{field}` in ({commaSeparatedValues})";
+    }
+  }
+
   public static string SqlInOperator<T>(
     this IEnumerable<T> values, string field, string parameterNamePrefix, 
     out Dictionary<string, object> parameters)
