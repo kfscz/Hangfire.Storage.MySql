@@ -102,8 +102,8 @@ class MySqlObjectsInstaller(
       command.ExecuteNonQuery();
     }
     using (var command = _connection
-      .CreateCommand("""
-          INSERT INTO `{prefix}Migration` (Id, ExecutedAt)
+      .CreateCommand($"""
+          INSERT INTO `{_tablesPrefix}Migration` (Id, ExecutedAt)
           VALUES (TRIM(@id), @now);
           """)
       .WithTransaction(transaction)
