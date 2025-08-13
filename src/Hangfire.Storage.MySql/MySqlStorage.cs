@@ -4,9 +4,8 @@ using Hangfire.Server;
 using Hangfire.Storage.MySql.JobQueue;
 using Hangfire.Storage.MySql.Locking;
 using Hangfire.Storage.MySql.Monitoring;
-using System;
-using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 
 namespace Hangfire.Storage.MySql;
 
@@ -18,6 +17,15 @@ public class MySqlStorage : JobStorage, IDisposable
   readonly MySqlStorageOptions _storageOptions;
 
   public virtual PersistentJobQueueProviderCollection QueueProviders { get; private set; }
+
+  public MySqlStorage(
+      string connectionString, 
+      MySqlStorageOptions storageOptions,
+      DbProviderFactory factory
+    ) : this(
+      connector: new DbProviderFactoryConnector(factory, connectionString), 
+      storageOptions: storageOptions)
+  { }
 
   public MySqlStorage(IDbConnector connector, MySqlStorageOptions storageOptions)
   {
