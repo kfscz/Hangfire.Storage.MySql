@@ -1,83 +1,72 @@
 ﻿using Dapper;
-using Hangfire.Annotations;
 using Hangfire.Common;
 using Hangfire.States;
 using Hangfire.Storage.Monitoring;
 using Hangfire.Storage.MySql.Entities;
 using Hangfire.Storage.MySql.JobQueue;
-using System;
-using System.Collections.Generic;
 using System.Data;
-using System.Linq;
+using System.Diagnostics;
 
 namespace Hangfire.Storage.MySql.Monitoring;
 
-internal class MySqlMonitoringApi : IMonitoringApi
+class MySqlMonitoringApi(
+    MySqlStorage storage, 
+    MySqlStorageOptions storageOptions
+  ) : IMonitoringApi
 {
-  private readonly MySqlStorage _storage;
-  private readonly MySqlStorageOptions _storageOptions;
 
-  public MySqlMonitoringApi([NotNull] MySqlStorage storage, MySqlStorageOptions storageOptions)
-  {
-    if (storage == null) throw new ArgumentNullException("storage");
+  readonly MySqlStorage _storage = storage 
+    ?? throw new ArgumentNullException(nameof(storage));
+  readonly MySqlStorageOptions _storageOptions = storageOptions 
+    ?? throw new ArgumentNullException(nameof(storageOptions));
 
-    _storage = storage;
-    _storageOptions = storageOptions;
-  }
   public IList<QueueWithTopEnqueuedJobsDto> Queues()
   {
     var tuples = _storage.QueueProviders
         .Select(x => x.GetJobQueueMonitoringApi())
-        .SelectMany(x => x.GetQueues(), (monitoring, queue) => new { Monitoring = monitoring, Queue = queue })
+        .SelectMany(x => x.GetQueues(), (monitoring, queue) => (Monitoring: monitoring, Queue: queue))
         .OrderBy(x => x.Queue)
         .ToArray();
-
     var result = new List<QueueWithTopEnqueuedJobsDto>(tuples.Length);
-
-    foreach (var tuple in tuples)
+    foreach (var (monitor, queue) in tuples)
     {
-      var enqueuedJobIds =
-          tuple.Monitoring.GetEnqueuedJobIds(tuple.Queue, 0, 5).ToArray();
-      var counters = tuple.Monitoring.GetEnqueuedAndFetchedCount(tuple.Queue);
+      var enqueuedJobIds = monitor.GetEnqueuedJobIds(queue, 0, 5);
+      var counters = monitor.GetEnqueuedAndFetchedCount(queue);
       var firstJobs = UseConnection(c => EnqueuedJobs(c, enqueuedJobIds));
-
-      result.Add(new QueueWithTopEnqueuedJobsDto
+      result.Add(new()
       {
-        Name = tuple.Queue,
+        Name = queue,
         Length = counters.EnqueuedCount ?? 0,
         Fetched = counters.FetchedCount,
         FirstJobs = firstJobs
       });
     }
-
     return result;
   }
 
-  public IList<ServerDto> Servers()
+  public IList<ServerDto> Servers() => UseConnection(SelectServers);
+
+  private IList<ServerDto> SelectServers(IDbConnection connection)
   {
-    return UseConnection<IList<ServerDto>>(connection =>
+    using var command = connection.CreateCommand($"""
+      SELECT Id, Data, LastHeartbeat
+      FROM `{_storageOptions.TablesPrefix}Server`;
+      """);
+    using var reader = command.ExecuteReader();    
+    var result = new List<ServerDto>(1);
+    while (reader.Read())
     {
-      var servers =
-                connection.Query<Entities.Server>(
-                    $"select * from `{_storageOptions.TablesPrefix}Server`").ToList();
-
-      var result = new List<ServerDto>();
-
-      foreach (var server in servers)
-      {
-        var data = SerializationHelper.Deserialize<ServerData>(server.Data);
-        result.Add(new ServerDto
-        {
-          Name = server.Id,
-          Heartbeat = server.LastHeartbeat,
-          Queues = data.Queues,
-          StartedAt = data.StartedAt ?? DateTime.MinValue,
-          WorkersCount = data.WorkerCount
-        });
-      }
-
-      return result;
-    });
+      string dataStr = reader.GetString("Data");
+      var data = SerializationHelper.Deserialize<ServerData>(dataStr);
+      result.Add(new () {
+        Name = reader.GetString("Id"),
+        Heartbeat = reader.GetNullableDateTime("LastHeartbeat"),
+        Queues = data.Queues,
+        StartedAt = data.StartedAt ?? DateTime.MinValue,
+        WorkersCount = data.WorkerCount
+      });
+    }
+    return result;
   }
 
   public JobDetailsDto? JobDetails(string jobId)
@@ -123,40 +112,95 @@ internal class MySqlMonitoringApi : IMonitoringApi
 
   public StatisticsDto GetStatistics()
   {
-    var jobQuery = $@"/* count Jobs */
-                select count(Id) from `{_storageOptions.TablesPrefix}Job` where StateName = @stateName";
-    var succeededQuery = $@"/* aggregate counters */
-                select sum(s.`Value`) from (
-                    select sum(`Value`) as `Value` from `{_storageOptions.TablesPrefix}Counter` where `Key` = @key
-                    union all
-                    select `Value` from `{_storageOptions.TablesPrefix}AggregatedCounter` where `Key` = @key
-                ) as s;";
-
-    var statistics = UseConnection(connection =>
-        new StatisticsDto
-        {
-          Enqueued = connection.ExecuteScalar<int>(jobQuery, new { stateName = "Enqueued" }),
-          Failed = connection.ExecuteScalar<int>(jobQuery, new { stateName = "Failed" }),
-          Processing = connection.ExecuteScalar<int>(jobQuery, new { stateName = "Processing" }),
-          Scheduled = connection.ExecuteScalar<int>(jobQuery, new { stateName = "Scheduled" }),
-          Servers = connection.ExecuteScalar<int>($"select count(Id) from `{_storageOptions.TablesPrefix}Server`"),
-          Succeeded = connection.ExecuteScalar<int>(succeededQuery, new { key = "stats:succeeded" }),
-          Deleted = connection.ExecuteScalar<int>(succeededQuery, new { key = "stats:deleted" }),
-          Recurring = connection.ExecuteScalar<int>($@"
-                        select count(*) from `{_storageOptions.TablesPrefix}Set` where `Key` = 'recurring-jobs'")
-        });
-
+    var statistics = UseConnection(SelectStatistics);
     statistics.Queues = _storage.QueueProviders
-        .SelectMany(x => x.GetJobQueueMonitoringApi().GetQueues())
-        .Count();
-
+      .SelectMany(x => x.GetJobQueueMonitoringApi().GetQueues())
+      .Count();
     return statistics;
+  }
+
+  StatisticsDto SelectStatistics(IDbConnection connection)
+  {
+    const string statsSucceeded = "stats:succeeded", statsDeleted = "stats:deleted";
+    string tablesPrefix = _storageOptions.TablesPrefix;
+    using var command = connection.CreateCommand($"""
+      /* statistics jobs */
+      SELECT 
+        j.StateName,
+        COUNT(*) AS Count
+      FROM `{tablesPrefix}Job` j
+      WHERE j.StateName IN (
+        '{JobStateValue.Enqueued}', '{JobStateValue.Failed}', 
+        '{JobStateValue.Processing}', '{JobStateValue.Scheduled}')
+      GROUP BY j.StateName;
+      
+      SELECT count(Id) AS Count
+      FROM `{tablesPrefix}Server`;
+
+      SELECT count(*) AS Count
+      FROM `{tablesPrefix}Set`
+      WHERE `Key` = 'recurring-jobs';
+
+      SELECT 
+        stats.`Key`, 
+        SUM(stats.`Value`) AS `Value`
+      FROM (
+        SELECT 
+          c.`Key`,
+          sum(c.`Value`) as `Value`
+        FROM `{tablesPrefix}Counter` c
+        WHERE `Key` in ('{statsSucceeded}', '{statsDeleted}')
+        GROUP BY `Key`
+        UNION ALL SELECT 
+          ac.`Key`,
+          sum(ac.`Value`) AS `Value`
+        FROM `{tablesPrefix}AggregatedCounter` ac
+        WHERE ac.`Key` in ('{statsSucceeded}', '{statsDeleted}')
+        GROUP BY ac.`Key`
+      ) stats
+      GROUP BY stats.`Key`;
+      """);
+    using var reader = command.ExecuteReader();
+
+    var jobStatesCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+    while (reader.Read())
+    {
+      var stateName = reader.GetString("StateName");
+      var count = reader.GetLong("Count");
+      jobStatesCount.Add(stateName, count);
+    }
+
+    reader.NextResult();
+    long serverCount = reader.Read() ? reader.GetLong("Count") : 0L;
+
+    reader.NextResult();
+    long recurringCount = reader.Read() ? reader.GetLong("Count") : 0L;
+
+    reader.NextResult();
+    var statsCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+    while (reader.Read())
+    {
+      var key = reader.GetString("Key");
+      var value = reader.GetLong("Value");
+      statsCount.Add(key, value);
+    }
+    return new () {
+      Enqueued = jobStatesCount.GetValueOrDefault(JobStateValue.Enqueued, 0L),
+      Failed = jobStatesCount.GetValueOrDefault(JobStateValue.Failed, 0L),
+      Processing = jobStatesCount.GetValueOrDefault(JobStateValue.Processing, 0L),
+      Scheduled = jobStatesCount.GetValueOrDefault(JobStateValue.Scheduled, 0L),
+      Servers = serverCount,
+      Succeeded = statsCount.GetValueOrDefault(statsSucceeded, 0L),
+      Deleted = statsCount.GetValueOrDefault(statsDeleted, 0L),
+      Recurring = recurringCount
+    };
+
   }
 
   public JobList<EnqueuedJobDto> EnqueuedJobs(string queue, int @from, int perPage)
   {
     var queueApi = GetQueueApi(queue);
-    var enqueuedJobIds = queueApi.GetEnqueuedJobIds(queue, from, perPage).ToArray();
+    var enqueuedJobIds = queueApi.GetEnqueuedJobIds(queue, from, perPage);
     return UseConnection(c => EnqueuedJobs(c, enqueuedJobIds));
   }
 
@@ -343,7 +387,6 @@ internal class MySqlMonitoringApi : IMonitoringApi
   {
     var provider = _storage.QueueProviders.GetProvider(queueName);
     var monitoringApi = provider.GetJobQueueMonitoringApi();
-
     return monitoringApi;
   }
 
@@ -352,7 +395,7 @@ internal class MySqlMonitoringApi : IMonitoringApi
       int from,
       int count,
       string stateName,
-      Func<SqlJob, Job?, Dictionary<string, string>, TDto> selector)
+      Func<SqlJob, Job?, IReadOnlyDictionary<string, string>, TDto> selector)
   {
     var jobsSql =
         $@"select * from (
@@ -372,21 +415,22 @@ internal class MySqlMonitoringApi : IMonitoringApi
   }
 
   private static JobList<TDto> DeserializeJobs<TDto>(
-      ICollection<SqlJob> jobs,
-      Func<SqlJob, Job?, Dictionary<string, string>, TDto> selector)
+      IReadOnlyCollection<SqlJob> sqlJobs,
+      Func<SqlJob, Job?, IReadOnlyDictionary<string, string>, TDto> dtoFactory)
   {
-    var result = new List<KeyValuePair<string, TDto>>(jobs.Count);
-    foreach (var job in jobs)
+    var result = new JobList<TDto>([]);
+    foreach (var sqlJob in sqlJobs)
     {
-      var deserializedData = SerializationHelper.Deserialize<Dictionary<string, string>>(job.StateData);
-      var stateData = deserializedData != null
-                  ? new Dictionary<string, string>(deserializedData, StringComparer.OrdinalIgnoreCase)
-                  : new();
-      var dto = selector(job, DeserializeJob(job.InvocationData, job.Arguments), stateData);
-      result.Add(new KeyValuePair<string, TDto>(job.Id.ToString(), dto));
+      var deserializedData = SerializationHelper // maybe deserialize to IEnumerable<KeyValuePair<string, string>> instead? To avoid unnecessary dictionary construction
+        .Deserialize<Dictionary<string, string>>(sqlJob.StateData); 
+      IReadOnlyDictionary<string, string> stateData = deserializedData is not null
+        ? new Dictionary<string, string>(deserializedData, StringComparer.OrdinalIgnoreCase)
+        : [];
+      var job = DeserializeJob(sqlJob.InvocationData, sqlJob.Arguments);
+      var dto = dtoFactory(sqlJob, job, stateData);
+      result.Add(new KeyValuePair<string, TDto>(sqlJob.Id.ToString(), dto));
     }
-
-    return new JobList<TDto>(result);
+    return result;
   }
 
   private static Job? DeserializeJob(string invocationData, string arguments)
@@ -399,6 +443,7 @@ internal class MySqlMonitoringApi : IMonitoringApi
     }
     catch (JobLoadException)
     {
+      Debug.Fail("I guess this shouldn't be happening");
       return null;
     }
   }
@@ -455,18 +500,9 @@ internal class MySqlMonitoringApi : IMonitoringApi
   }
 
   private JobList<EnqueuedJobDto> EnqueuedJobs(
-      IDbConnection connection, int[] ids)
+      IDbConnection connection, IReadOnlyCollection<int> ids)
   {
-    string enqueuedJobsSql =
-        $@"select j.*, s.Reason as StateReason, s.Data as StateData 
-                from `{_storageOptions.TablesPrefix}Job` j
-                left join `{_storageOptions.TablesPrefix}State` s on s.Id = j.StateId
-                where j.Id in @jobIds";
-
-    var jobs = ids.Any()
-        ? connection.Query<SqlJob>(enqueuedJobsSql, new { jobIds = ids }).ToArray()
-        : Array.Empty<SqlJob>();
-
+    IReadOnlyCollection<SqlJob> jobs = ids.Count > 0 ? SelectJobs(connection, ids) : [];
     return DeserializeJobs(
         jobs,
         (sqlJob, job, stateData) => new EnqueuedJobDto
@@ -474,9 +510,45 @@ internal class MySqlMonitoringApi : IMonitoringApi
           Job = job,
           State = sqlJob.StateName,
           EnqueuedAt = sqlJob.StateName == EnqueuedState.StateName
-                ? JobHelper.DeserializeNullableDateTime(stateData["EnqueuedAt"])
-                : null
+            ? JobHelper.DeserializeNullableDateTime(stateData["EnqueuedAt"])
+            : null
         });
+  }
+
+  private List<SqlJob> SelectJobs(IDbConnection connection, IReadOnlyCollection<int> ids)
+  {
+    var idsIn = ids.SqlInOperator("j.Id", "@jobId");
+    using var command = connection.CreateCommand($"""
+      SELECT
+        j.Id, 
+        j.StateName,
+        j.InvocationData,
+        j.Arguments,
+        j.CreatedAt,
+        j.ExpireAt,
+        s.Reason as StateReason, 
+        s.Data as StateData 
+      FROM `{_storageOptions.TablesPrefix}Job`        j
+      LEFT JOIN `{_storageOptions.TablesPrefix}State` s ON s.Id = j.StateId
+      WHERE {idsIn};
+      """);
+    using var reader = command.ExecuteReader();
+    var result = new List<SqlJob>(ids.Count);
+    while (reader.Read())
+    {
+      result.Add(new()
+      {
+        Id = reader.GetInt("Id"),
+        StateName = reader.GetNullableString("StateName"),
+        InvocationData = reader.GetString("InvocationData"),
+        Arguments = reader.GetString("Arguments"),
+        CreatedAt = reader.GetDateTime("CreatedAt"),
+        ExpireAt = reader.GetNullableDateTime("ExpireAt"),
+        StateReason = reader.GetNullableString("StateReason"),
+        StateData = reader.GetNullableString("StateData")
+      });
+    }
+    return result;
   }
 
   private JobList<FetchedJobDto> FetchedJobs(

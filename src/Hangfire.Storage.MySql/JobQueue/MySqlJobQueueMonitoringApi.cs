@@ -50,9 +50,9 @@ class MySqlJobQueueMonitoringApi(
     return result;
   }
 
-  public IEnumerable<int> GetEnqueuedJobIds(string queue, int @from, int perPage)
+  public HashSet<int> GetEnqueuedJobIds(string queue, int @from, int perPage)
   {
-    List<int> selectJobIds(System.Data.IDbConnection connection)
+    HashSet<int> selectJobIds(System.Data.IDbConnection connection)
     {
       using var command = connection
         .CreateCommand($"""
@@ -69,7 +69,7 @@ class MySqlJobQueueMonitoringApi(
         .AddParameter("@start", @from + 1)
         .AddParameter("@end", @from + perPage);
       using var reader = command.ExecuteReader();
-      var result = new List<int>();
+      var result = new HashSet<int>();
       while (reader.Read())
       {
         result.Add(Convert.ToInt32(reader["JobId"]));
