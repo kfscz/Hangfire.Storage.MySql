@@ -16,7 +16,7 @@
     <PackageTags>hangfire;mysql</PackageTags>
     <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     <Authors>Milosz Krajewski, Jan Janoušek</Authors>
-    <Version>2.2.0-dev8</Version>
+    <Version>2.2.0-dev9</Version>
     <Description>Hangfire storage implementation for MySQL</Description>
     <RepositoryUrl>https://github.com/kfscz/Hangfire.Storage.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
@@ -30,6 +30,7 @@
       2.2.0-dev6: Refactoring `ResourceLock`
       2.2.0-dev7: Reduced dependency on `Dapper` in `MySqlMonitoringApi`. Optimalizer statistics gathering.
       2.2.0-dev8: BUGFIX: Fixed `MySqlObjectsInstaller`.
+      2.2.0-dev9: BUGFIX: fixing generating SQL
     </PackageReleaseNotes>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <PackageReadmeFile>README.md</PackageReadmeFile>
