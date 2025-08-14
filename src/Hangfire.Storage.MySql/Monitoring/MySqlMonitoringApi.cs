@@ -517,6 +517,7 @@ class MySqlMonitoringApi(
 
   private List<SqlJob> SelectJobs(IDbConnection connection, IReadOnlyCollection<int> ids)
   {
+    string tablesPrefix = _storageOptions.TablesPrefix;
     var idsIn = ids.SqlInOperator("j.Id", "@jobId");
     using var command = connection.CreateCommand($"""
       SELECT
@@ -528,8 +529,8 @@ class MySqlMonitoringApi(
         j.ExpireAt,
         s.Reason as StateReason, 
         s.Data as StateData 
-      FROM `{_storageOptions.TablesPrefix}Job`        j
-      LEFT JOIN `{_storageOptions.TablesPrefix}State` s ON s.Id = j.StateId
+      FROM `{tablesPrefix}Job`        j
+      LEFT JOIN `{tablesPrefix}State` s ON s.Id = j.StateId
       WHERE {idsIn};
       """);
     using var reader = command.ExecuteReader();
