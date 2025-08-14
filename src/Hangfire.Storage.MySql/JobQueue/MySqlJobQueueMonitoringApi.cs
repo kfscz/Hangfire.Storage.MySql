@@ -38,16 +38,9 @@ class MySqlJobQueueMonitoringApi(
       FROM `{_storageOptions.TablesPrefix}JobQueue`;
       """);
     using var reader = command.ExecuteReader();
-    var result = new List<string>();
-    while (reader.Read())
-    {
-      Debug.Assert(reader["Queue"] is string);
-      if (reader["Queue"] is string s)
-      {
-        result.Add(s);
-      }
-    }
-    return result;
+    return [.. reader
+      .Select(r => r.GetNullableString("Queue"))
+      .OfType<string>()];
   }
 
   public HashSet<int> GetEnqueuedJobIds(string queue, int @from, int perPage)
@@ -69,12 +62,7 @@ class MySqlJobQueueMonitoringApi(
         .AddParameter("@start", @from + 1)
         .AddParameter("@end", @from + perPage);
       using var reader = command.ExecuteReader();
-      var result = new HashSet<int>();
-      while (reader.Read())
-      {
-        result.Add(Convert.ToInt32(reader["JobId"]));
-      }
-      return result;
+      return [.. reader.Select(r => r.GetInt("JobId"))];
     }
 
     return _storage.UseConnection(selectJobIds);

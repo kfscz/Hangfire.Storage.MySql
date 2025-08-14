@@ -100,13 +100,11 @@ internal class MySqlJobQueue(
         """)
       .AddParameter("@token", token);
     using var reader = command.ExecuteReader();
-    return reader.Read()
-      ? new () {
-          Id = Convert.ToInt32(reader["Id"]),
-          JobId = Convert.ToInt32(reader["JobId"]),
-          Queue = (string)reader["Queue"],
-        }
-      : throw new InvalidOperationException("Expected at least on row result");
+    return reader.First(r => new FetchedJob() {
+      Id = r.GetInt("Id"),
+      JobId = r.GetInt("JobId"),
+      Queue = r.GetString("Queue"),
+    });
   }
 
   private void Enqueue(

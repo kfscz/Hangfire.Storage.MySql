@@ -79,15 +79,9 @@ class MySqlObjectsInstaller(
     using var command = _connection
       .CreateCommand($"SELECT trim(Id) as Id FROM {_tablesPrefix}Migration;");
     using var reader = command.ExecuteReader();
-    var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-    while (reader.Read())
-    {
-      var id = reader["Id"] as string ?? string.Empty;
-      Debug.Assert(!string.IsNullOrEmpty(id));
-      Debug.Assert(!result.Contains(id));
-      result.Add(id);
-    }
-    return result;
+    return reader
+      .Select(r => r.GetNullableString("Id") ?? string.Empty)
+      .ToHashSet(StringComparer.OrdinalIgnoreCase);
   }
 
   private void ApplyMigration(Migration migration)

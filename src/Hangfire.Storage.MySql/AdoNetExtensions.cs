@@ -152,6 +152,54 @@ static class AdoNetExtensions
     };
   }
 
+  public static IEnumerable<T> Select<T>(this IDataReader reader, Func<IDataRecord, T> selector)
+  {
+    if (reader is null) throw new ArgumentNullException(nameof(reader));
+    if (selector is null) throw new ArgumentNullException(nameof(selector));
+    while (reader.Read())
+    {
+      yield return selector(reader);
+    }
+  }
+
+  public static T First<T>(this IDataReader reader, Func<IDataRecord, T> selector)
+  { 
+    if (reader is null) throw new ArgumentNullException(nameof(reader));
+    if (selector is null) throw new ArgumentNullException(nameof(selector));
+    return reader.Read() 
+      ? selector(reader) 
+      : throw new InvalidOperationException("Expected at least on row result");
+  }
+
+  public static Dictionary<TKey, TValue> SelectDictionary<TKey, TValue>(
+    this IDataReader reader,
+    Func<IDataRecord, TKey> keySelector,
+    Func<IDataRecord, TValue> valueSelector)
+    where TKey : notnull 
+    => reader.SelectDictionary(
+      keySelector, valueSelector, EqualityComparer<TKey>.Default);
+
+  public static Dictionary<TKey, TValue> SelectDictionary<TKey, TValue>(
+    this IDataReader reader, 
+    Func<IDataRecord, TKey> keySelector, 
+    Func<IDataRecord, TValue> valueSelector,
+    IEqualityComparer<TKey> keyEqualityComparer)
+    where TKey : notnull
+  { 
+    if (reader is null) throw new ArgumentNullException(nameof(reader));
+    if (keySelector is null) throw new ArgumentNullException(nameof(keySelector));
+    if (valueSelector is null) throw new ArgumentNullException(nameof(valueSelector));
+    if (keyEqualityComparer is null) throw new ArgumentNullException(nameof(keyEqualityComparer));
+    var result = new Dictionary<TKey, TValue>(keyEqualityComparer);
+    while (reader.Read())
+    {
+      var key = keySelector(reader);
+      var value = valueSelector(reader);
+      result.Add(key, value);
+    }
+    return result;
+  }
+
 }
 
 static class SqlHelper

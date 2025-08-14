@@ -162,13 +162,10 @@ class MySqlMonitoringApi(
       """);
     using var reader = command.ExecuteReader();
 
-    var jobStatesCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-    while (reader.Read())
-    {
-      var stateName = reader.GetString("StateName");
-      var count = reader.GetLong("Count");
-      jobStatesCount.Add(stateName, count);
-    }
+    var jobStatesCount = reader.SelectDictionary(
+      r => r.GetString("StateName"),
+      r => r.GetLong("Count"),
+      StringComparer.OrdinalIgnoreCase);
 
     reader.NextResult();
     long serverCount = reader.Read() ? reader.GetLong("Count") : 0L;
@@ -177,13 +174,11 @@ class MySqlMonitoringApi(
     long recurringCount = reader.Read() ? reader.GetLong("Count") : 0L;
 
     reader.NextResult();
-    var statsCount = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-    while (reader.Read())
-    {
-      var key = reader.GetString("Key");
-      var value = reader.GetLong("Value");
-      statsCount.Add(key, value);
-    }
+    var statsCount = reader.SelectDictionary(
+      r => r.GetString("Key"),
+      r => r.GetLong("Value"),
+      StringComparer.OrdinalIgnoreCase);
+
     return new () {
       Enqueued = jobStatesCount.GetValueOrDefault(JobStateValue.Enqueued, 0L),
       Failed = jobStatesCount.GetValueOrDefault(JobStateValue.Failed, 0L),
@@ -466,21 +461,15 @@ class MySqlMonitoringApi(
           IFNULL(`Key`, '') as `Key`, 
           IFNULL(`Value`, 0) as `Count` 
         FROM `{_storageOptions.TablesPrefix}AggregatedCounter`
-        WHERE {keysIs};
+        WHERE ({keysIs}) AND 
+          `Key` is not null AND TRIM(`Key`) <> '';
         """)
       .AddParameters(keyParameters);
-    var valueMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
     using var reader = command.ExecuteReader();
-    while(reader.Read())
-    {
-      var key = reader.GetString("Key");
-      Debug.Assert(!string.IsNullOrEmpty(key));
-      if(!string.IsNullOrEmpty(key))
-      { 
-        var count = reader.GetLong("Count");
-        valueMap.Add(key, count);
-      }
-    }
+    var valueMap = reader.SelectDictionary(
+      r => r.GetString("Key"),
+      r => r.GetLong("Count"), 
+      StringComparer.OrdinalIgnoreCase);
     return keyMaps.ToDictionary(
       keySelector: p => p.Value, 
       elementSelector: p => valueMap.GetValueOrDefault(p.Key, 0L));
@@ -522,20 +511,18 @@ class MySqlMonitoringApi(
       """);
     using var reader = command.ExecuteReader();
     var result = new List<SqlJob>(ids.Count);
-    while (reader.Read())
-    {
-      result.Add(new()
-      {
-        Id = reader.GetInt("Id"),
-        StateName = reader.GetNullableString("StateName"),
-        InvocationData = reader.GetString("InvocationData"),
-        Arguments = reader.GetString("Arguments"),
-        CreatedAt = reader.GetDateTime("CreatedAt"),
-        ExpireAt = reader.GetNullableDateTime("ExpireAt"),
-        StateReason = reader.GetNullableString("StateReason"),
-        StateData = reader.GetNullableString("StateData")
-      });
-    }
+    result.AddRange(
+      reader.Select(r => new SqlJob() {
+        Id = r.GetInt("Id"),
+        StateName = r.GetNullableString("StateName"),
+        InvocationData = r.GetString("InvocationData"),
+        Arguments = r.GetString("Arguments"),
+        CreatedAt = r.GetDateTime("CreatedAt"),
+        ExpireAt = r.GetNullableDateTime("ExpireAt"),
+        StateReason = r.GetNullableString("StateReason"),
+        StateData = r.GetNullableString("StateData")
+      })
+    );
     return result;
   }
 
