@@ -175,7 +175,7 @@ static class SqlHelper
     {
       field = field.Trim();
       var commaSeparatedValues = string.Join(",", valuesSet);
-      return $"`{field}` in ({commaSeparatedValues})";
+      return $"{field} in ({commaSeparatedValues})";
     }
   }
 
@@ -197,7 +197,7 @@ static class SqlHelper
     {
       var parameterGen = new ParameterGen(parameterNamePrefix);
       field = field.Trim();
-      var b = new StringBuilder($"`{field}` in (")
+      var b = new StringBuilder($"{field} in (")
         .Append(parameterGen.AddParameter(en.Current));
       while (en.MoveNext())
       {
