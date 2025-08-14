@@ -343,29 +343,17 @@ class MySqlMonitoringApi(
         GetNumberOfJobsByStateName(connection, DeletedState.StateName));
   }
 
-  public IDictionary<DateTime, long> SucceededByDatesCount()
-  {
-    return UseConnection(connection =>
-        GetTimelineStats(connection, "succeeded"));
-  }
+  public IDictionary<DateTime, long> SucceededByDatesCount() 
+    => UseConnection(connection => GetTimelineStats(connection, "succeeded"));
 
-  public IDictionary<DateTime, long> FailedByDatesCount()
-  {
-    return UseConnection(connection =>
-        GetTimelineStats(connection, "failed"));
-  }
+  public IDictionary<DateTime, long> FailedByDatesCount() 
+    => UseConnection(connection => GetTimelineStats(connection, "failed"));
 
-  public IDictionary<DateTime, long> HourlySucceededJobs()
-  {
-    return UseConnection(connection =>
-        GetHourlyTimelineStats(connection, "succeeded"));
-  }
+  public IDictionary<DateTime, long> HourlySucceededJobs() 
+    => UseConnection(connection => GetHourlyTimelineStats(connection, "succeeded"));
 
-  public IDictionary<DateTime, long> HourlyFailedJobs()
-  {
-    return UseConnection(connection =>
-        GetHourlyTimelineStats(connection, "failed"));
-  }
+  public IDictionary<DateTime, long> HourlyFailedJobs() 
+    => UseConnection(connection => GetHourlyTimelineStats(connection, "failed"));
 
   private T UseConnection<T>(Func<IDbConnection, T> action) =>
       _storage.UseConnection(action);
@@ -448,55 +436,54 @@ class MySqlMonitoringApi(
     }
   }
 
-  private Dictionary<DateTime, long> GetTimelineStats(
-      IDbConnection connection,
-      string type)
+  private Dictionary<DateTime, long> GetTimelineStats(IDbConnection connection, string type)
   {
     var endDate = DateTime.UtcNow.Date;
-    var dates = new List<DateTime>();
-    for (var i = 0; i < 7; i++)
-    {
-      dates.Add(endDate);
-      endDate = endDate.AddDays(-1);
-    }
-
-    var keyMaps = dates.ToDictionary(x => String.Format("stats:{0}:{1}", type, x.ToString("yyyy-MM-dd")), x => x);
-
+    var keyMaps = Enumerable
+      .Range(0, 7)
+      .Select(i => endDate.AddDays(-i))
+      .ToDictionary(x => $"stats:{type}:{x:yyyy-MM-dd}");
     return GetTimelineStats(connection, keyMaps);
   }
 
-  private Dictionary<DateTime, long> GetTimelineStats(IDbConnection connection,
-      IDictionary<string, DateTime> keyMaps)
+  private Dictionary<DateTime, long> GetHourlyTimelineStats(IDbConnection connection, string type)
   {
-    var valuesMap = connection
-      .Query<KeyCountAggregatedCounter>(
-        $"""
-        SELECT `Key`, `Value` as `Count` 
-        FROM `{_storageOptions.TablesPrefix}AggregatedCounter`
-        WHERE `Key` in @keys
-        """,        
-        new { keys = keyMaps.Keys })
-      .ToDictionary(x => x.Key ?? string.Empty, x => x.Count);
-
-    foreach (var key in keyMaps.Keys)
-    {
-      if (!valuesMap.ContainsKey(key)) valuesMap.Add(key, 0);
-    }
-    var result = new Dictionary<DateTime, long>();
-    for (var i = 0; i < keyMaps.Count; i++)
-    {
-      var value = valuesMap[keyMaps.ElementAt(i).Key];
-      result.Add(keyMaps.ElementAt(i).Value, value);
-    }
-    return result;
+    var endDate = DateTime.UtcNow;
+    var keyMaps = Enumerable
+      .Range(0, 24)
+      .Select(i => endDate.AddHours(-i))
+      .ToDictionary(x => $"stats:{type}:{x:yyyy-MM-dd-HH}");
+    return GetTimelineStats(connection, keyMaps);
   }
 
-  class KeyCountAggregatedCounter 
+  private Dictionary<DateTime, long> GetTimelineStats(
+    IDbConnection connection, IReadOnlyDictionary<string, DateTime> keyMaps)
   {
-#pragma warning disable CS0649
-    public string? Key;
-    public long Count;
-#pragma warning restore CS0649
+    var keysIs = keyMaps.Keys.SqlInOperator("`Key`", "@key", out var keyParameters);
+    using var command = connection
+      .CreateCommand($"""
+        SELECT 
+          IFNULL(`Key`, '') as `Key`, 
+          IFNULL(`Value`, 0) as `Count` 
+        FROM `{_storageOptions.TablesPrefix}AggregatedCounter`
+        WHERE {keysIs};
+        """)
+      .AddParameters(keyParameters);
+    var valueMap = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+    using var reader = command.ExecuteReader();
+    while(reader.Read())
+    {
+      var key = reader.GetString("Key");
+      Debug.Assert(!string.IsNullOrEmpty(key));
+      if(!string.IsNullOrEmpty(key))
+      { 
+        var count = reader.GetLong("Count");
+        valueMap.Add(key, count);
+      }
+    }
+    return keyMaps.ToDictionary(
+      keySelector: p => p.Value, 
+      elementSelector: p => valueMap.GetValueOrDefault(p.Key, 0L));
   }
 
   private JobList<EnqueuedJobDto> EnqueuedJobs(
@@ -577,20 +564,4 @@ class MySqlMonitoringApi(
     return new JobList<FetchedJobDto>(jobs.Select(ToPair));
   }
 
-  private Dictionary<DateTime, long> GetHourlyTimelineStats(
-      IDbConnection connection,
-      string type)
-  {
-    var endDate = DateTime.UtcNow;
-    var dates = new List<DateTime>();
-    for (var i = 0; i < 24; i++)
-    {
-      dates.Add(endDate);
-      endDate = endDate.AddHours(-1);
-    }
-
-    var keyMaps = dates.ToDictionary(x => $"stats:{type}:{x:yyyy-MM-dd-HH}", x => x);
-
-    return GetTimelineStats(connection, keyMaps);
-  }
 }
